@@ -19,7 +19,7 @@ class TimeSeriesDataset(Dataset):
     def __init__(self, ids, sensor: str = "sentinel", slice_mode: str = None):
         """
         ids: list of REFIDs
-        sensor: "sentinel", "planet", "vhr"
+        sensor: "sentinel", "planetscope", "vhr"
         slice_mode: None | "first_half"
         """
         self.ids = ids
@@ -35,7 +35,7 @@ class TimeSeriesDataset(Dataset):
         # 1) pick image path by sensor
         if self.sensor == "sentinel":
             img_path = SENTINEL_DIR / f"{fid}_RGBNIRRSWIRQ_Mosaic.tif"
-        elif self.sensor == "planet":
+        elif self.sensor == "planetscope":
             img_path = PLANETSCOPE_DIR / f"{fid}_RGBQ_Mosaic.tif"
         elif self.sensor == "vhr":
             img_path = VHR_DIR / f"{fid}_RGBY_Mosaic.tif"
@@ -58,7 +58,7 @@ class TimeSeriesDataset(Dataset):
             img = img.reshape(7, 2, 9, H, W)
             img = img.reshape(14, 9, H, W)
 
-        elif self.sensor == "planet":
+        elif self.sensor == "planetscope":
             # 42 = 7 * 2 * 3
             H, W = img.shape[1], img.shape[2]
             img = img.reshape(7, 2, 3, H, W)

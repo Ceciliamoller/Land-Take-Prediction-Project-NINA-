@@ -126,7 +126,8 @@ class FCEF(nn.Module):
 
         for block, upsample, skip in zip(self.decoder, self.upsample, reversed(skips)):
             x = upsample(x)
-            x = rearrange([x, skip], "t b c h w -> b (t c) h w")
+            # x = rearrange([x, skip], "t b c h w -> b (t c) h w")
+            x = torch.cat([x, skip], dim=1)     # concatenate along channels - MODIFICATION to original code
             x = block(x)
 
         return x

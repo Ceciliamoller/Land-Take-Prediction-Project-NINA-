@@ -16,7 +16,7 @@ class TimeSeriesDataset(Dataset):
     so it can be fed directly to the torchrs FD-CD models.
     """
 
-    def __init__(self, ids, sensor: str = "sentinel", slice_mode: str = None):
+    def __init__(self, ids, transform, sensor: str = "sentinel", slice_mode: str = None):
         """
         ids: list of REFIDs
         sensor: "sentinel", "planetscope", "vhr"
@@ -25,6 +25,7 @@ class TimeSeriesDataset(Dataset):
         self.ids = ids
         self.sensor = sensor.lower()
         self.slice_mode = slice_mode
+        self.transform = transform
 
     def __len__(self):
         return len(self.ids)
@@ -34,15 +35,15 @@ class TimeSeriesDataset(Dataset):
 
         # 1) pick image path by sensor
         if self.sensor == "sentinel":
-            img_path = SENTINEL_DIR / f"{fid}_RGBNIRRSWIRQ_Mosaic.tif"
+            img_path = SENTINEL_DIR / f"{fid}"
         elif self.sensor == "planetscope":
-            img_path = PLANETSCOPE_DIR / f"{fid}_RGBQ_Mosaic.tif"
+            img_path = PLANETSCOPE_DIR / f"{fid}"
         elif self.sensor == "vhr":
-            img_path = VHR_DIR / f"{fid}_RGBY_Mosaic.tif"
+            img_path = VHR_DIR / f"{fid}"
         else:
             raise ValueError(f"Unknown sensor: {self.sensor}")
 
-        mask_path = MASK_DIR / f"{fid}_mask.tif"
+        mask_path = MASK_DIR / f"{fid}"
 
         # 2) read arrays
         with rasterio.open(img_path) as src:
@@ -77,5 +78,9 @@ class TimeSeriesDataset(Dataset):
         # 5) to torch
         img = torch.from_numpy(img).float()     # (T, C, H, W)
         mask = torch.from_numpy(mask).long()    # (H, W)
+        mask = (mask > 0).long()
+
+        if self.transform is not None:
+            img, mask = self.transform(img, mask)
 
         return img, mask

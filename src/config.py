@@ -8,6 +8,8 @@ RAW_DIR = DATA_DIR / "raw"
 VHR_DIR = RAW_DIR / "vhr"
 SENTINEL_DIR = RAW_DIR / "sentinel"
 MASK_DIR = RAW_DIR / "masks"
+SENTINEL_DIR = RAW_DIR / "Sentinel"
+PLANETSCOPE_DIR = RAW_DIR / "PlanetScope"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
 

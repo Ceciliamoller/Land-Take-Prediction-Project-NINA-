@@ -1,0 +1,28 @@
+{
+  "os": "Windows-11-10.0.26200-SP0",
+  "python": "CPython 3.13.9",
+  "startedAt": "2025-11-18T16:11:59.801973Z",
+  "program": "c:\\Users\\emma\\Documents\\Land-Take-Prediction-Project-NINA-\\notebooks\\fc_early_fusion.ipynb",
+  "codePath": "c:\\Users\\emma\\Documents\\Land-Take-Prediction-Project-NINA-\\notebooks\\fc_early_fusion.ipynb",
+  "codePathLocal": "fc_early_fusion.ipynb",
+  "git": {
+    "remote": "https://github.com/Ceciliamoller/Land-Take-Prediction-Project-NINA-.git",
+    "commit": "2d700101aaead7fb5f737d25a02fa32307f6094b"
+  },
+  "email": "emma@gjoen.com",
+  "root": "c:\\Users\\emma\\Documents\\Land-Take-Prediction-Project-NINA-\\notebooks",
+  "host": "YogaEmma",
+  "executable": "c:\\Users\\emma\\Documents\\Land-Take-Prediction-Project-NINA-\\prosjekt_venv\\Scripts\\python.exe",
+  "cpu_count": 8,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "510770802688",
+      "used": "352487575552"
+    }
+  },
+  "memory": {
+    "total": "16505954304"
+  },
+  "writerId": "pk1ojmpg1c5ydahtdkoxecbz3a1jkewi"
+}

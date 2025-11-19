@@ -7,3 +7,5 @@ pandas
 matplotlib
 scikit-learn
 tqdm
+python-fotenv
+wandb

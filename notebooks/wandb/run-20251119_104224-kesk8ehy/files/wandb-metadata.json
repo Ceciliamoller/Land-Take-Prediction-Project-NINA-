@@ -1,0 +1,37 @@
+{
+  "os": "macOS-14.4.1-arm64-arm-64bit",
+  "python": "CPython 3.12.3",
+  "startedAt": "2025-11-19T09:42:24.711945Z",
+  "program": "/Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks/03_smp_unet_baseline.ipynb",
+  "codePath": "/Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks/03_smp_unet_baseline.ipynb",
+  "codePathLocal": "03_smp_unet_baseline.ipynb",
+  "git": {
+    "remote": "https://github.com/Ceciliamoller/Land-Take-Prediction-Project-NINA-.git",
+    "commit": "a868a0a1be45b76f678c4f39ba018c21941ed773"
+  },
+  "email": "cecilmb@stud.ntnu.no",
+  "root": "/Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks",
+  "host": "dhcp-10-22-81-223.wlan.ntnu.no",
+  "executable": "/Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/.venv/bin/python",
+  "cpu_count": 8,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "245107195904",
+      "used": "206587465728"
+    }
+  },
+  "memory": {
+    "total": "8589934592"
+  },
+  "apple": {
+    "name": "Apple M2",
+    "ecpuCores": 4,
+    "pcpuCores": 4,
+    "gpuCores": 8,
+    "memoryGb": 8,
+    "swapTotalBytes": "5368709120",
+    "ramTotalBytes": "8589934592"
+  },
+  "writerId": "j0uterpv91gpabtudjtnhfa8f22d1nwh"
+}

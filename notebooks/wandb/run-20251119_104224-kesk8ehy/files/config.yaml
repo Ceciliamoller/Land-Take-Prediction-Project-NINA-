@@ -1,0 +1,102 @@
+_wandb:
+    value:
+        cli_version: 0.23.0
+        e:
+            j0uterpv91gpabtudjtnhfa8f22d1nwh:
+                apple:
+                    ecpuCores: 4
+                    gpuCores: 8
+                    memoryGb: 8
+                    name: Apple M2
+                    pcpuCores: 4
+                    ramTotalBytes: "8589934592"
+                    swapTotalBytes: "5368709120"
+                codePath: /Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks/03_smp_unet_baseline.ipynb
+                codePathLocal: 03_smp_unet_baseline.ipynb
+                cpu_count: 8
+                cpu_count_logical: 8
+                disk:
+                    /:
+                        total: "245107195904"
+                        used: "206587465728"
+                email: cecilmb@stud.ntnu.no
+                executable: /Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/.venv/bin/python
+                git:
+                    commit: a868a0a1be45b76f678c4f39ba018c21941ed773
+                    remote: https://github.com/Ceciliamoller/Land-Take-Prediction-Project-NINA-.git
+                host: dhcp-10-22-81-223.wlan.ntnu.no
+                memory:
+                    total: "8589934592"
+                os: macOS-14.4.1-arm64-arm-64bit
+                program: /Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks/03_smp_unet_baseline.ipynb
+                python: CPython 3.12.3
+                root: /Users/cecilia/Desktop/NTNU/Fordypningsprosjekt/Land-Take-Prediction-Project-NINA-/notebooks
+                startedAt: "2025-11-19T09:42:24.711945Z"
+                writerId: j0uterpv91gpabtudjtnhfa8f22d1nwh
+        m: []
+        mask/class_labels:
+            val_examples_wandb_delimeter_ground_truth:
+                key: val_examples_wandb_delimeter_ground_truth
+                type: mask/class_labels
+                value:
+                    "0": background
+                    "1": land-take
+            val_examples_wandb_delimeter_prediction:
+                key: val_examples_wandb_delimeter_prediction
+                type: mask/class_labels
+                value:
+                    "0": background
+                    "1": land-take
+        python_version: 3.12.3
+        t:
+            "1":
+                - 1
+                - 41
+                - 49
+                - 63
+                - 74
+            "2":
+                - 1
+                - 41
+                - 49
+                - 63
+                - 74
+            "3":
+                - 1
+                - 2
+                - 16
+                - 61
+            "4": 3.12.3
+            "5": 0.23.0
+            "8":
+                - 1
+            "12": 0.23.0
+            "13": darwin-arm64
+augmentation:
+    value: true
+batch_size:
+    value: 8
+classes:
+    value: 2
+encoder:
+    value: resnet34
+encoder_weights:
+    value: imagenet
+epochs:
+    value: 10
+in_channels:
+    value: 126
+learning_rate:
+    value: 0.001
+model:
+    value: Unet
+patch_size:
+    value: 128
+train_patches_per_image:
+    value: 20
+train_ref_ids:
+    value: 14
+val_patches_per_image:
+    value: 10
+val_ref_ids:
+    value: 3

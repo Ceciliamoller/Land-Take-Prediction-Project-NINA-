@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 VHR_DIR = RAW_DIR / "vhr"
+SENTINEL_DIR = RAW_DIR / "sentinel"
 MASK_DIR = RAW_DIR / "masks"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"

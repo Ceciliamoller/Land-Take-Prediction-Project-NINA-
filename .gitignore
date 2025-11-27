@@ -35,3 +35,8 @@ notebooks/.ipynb_checkpoints/
 *.egg-info/
 dist/
 build/
+
+# Weights & Biases
+wandb/
+*.wandb
+

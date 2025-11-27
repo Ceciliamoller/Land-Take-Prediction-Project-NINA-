@@ -32,7 +32,7 @@ class SentinelHablossPatchDataset(Dataset):
         self,
         sentinel_dir: Union[str, Path],
         mask_dir: Union[str, Path],
-        patch_size: int = 128,
+        patch_size: int = 64,
         patches_per_image: int = 10,
         mean: Optional[Sequence[float]] = None,
         std: Optional[Sequence[float]] = None,
@@ -45,7 +45,7 @@ class SentinelHablossPatchDataset(Dataset):
         Args:
             sentinel_dir: Directory containing Sentinel *_RGBNIRRSWIRQ_Mosaic.tif files
             mask_dir: Directory containing *_mask.tif files
-            patch_size: Size of square patches (e.g., 128)
+            patch_size: Size of square patches (e.g., 64)
             patches_per_image: Number of patches to sample per tile per epoch
             mean: Optional sequence for per-channel mean normalization (length = total bands)
             std: Optional sequence for per-channel std normalization (length = total bands)
@@ -156,12 +156,10 @@ class SentinelHablossPatchDataset(Dataset):
         img_patch = img[:, y:y+self.patch_size, x:x+self.patch_size]
         mask_patch = mask[y:y+self.patch_size, x:x+self.patch_size]
         
+        img_patch = img_patch / 10000.0
+        
         if self.mean is not None and self.std is not None:
             img_patch = (img_patch - self.mean) / (self.std + 1e-6)
-        else:
-            max_val = img_patch.max()
-            if max_val > 0:
-                img_patch = img_patch / max_val
         
         if self.augment:
             if random.random() > 0.5:

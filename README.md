@@ -21,6 +21,27 @@ Predicting land-take (urban expansion, deforestation, etc.) from Sentinel-2 sate
 
 **Fair Comparison**: Both models use identical data splits (70/15/15), normalization, patch size, and random seeds for reproducible comparison.
 
+## Training Scripts
+
+Standalone training scripts for running on IDUN cluster:
+- `train_unet.py`: U-Net training script
+- `train_early_fusion.py`: FCEF training script
+- `slurm_unet.sh`: SLURM job script for U-Net
+- `slurm_fcef.sh`: SLURM job script for FCEF
+- `IDUN_GUIDE.md`: Complete guide for running on IDUN
+
+Run locally:
+```bash
+python train_unet.py
+python train_early_fusion.py
+```
+
+Submit to IDUN:
+```bash
+sbatch slurm_unet.sh
+sbatch slurm_fcef.sh
+```
+
 ## Repository Structure
 
 ### `notebooks/`

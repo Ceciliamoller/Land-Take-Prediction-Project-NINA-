@@ -1,29 +1,39 @@
 # Land-Take-Prediction-Project-NINA-
 
 ## Project Overview
-Predicting land-take (urban expansion, deforestation, etc.) from very high resolution (VHR) satellite imagery using deep learning. The project uses paired before/after RGBY satellite images along with binary land-take masks from the HABLOSS dataset.
+Predicting land-take (urban expansion, deforestation, etc.) from Sentinel-2 satellite imagery using deep learning. Uses time series data and binary land-take masks from the HABLOSS dataset.
 
-## Current Progress
+## Baseline Models
 
-### Simple CNN Proof of Concept
-A basic CNN model for binary semantic segmentation has been implemented in `notebooks/01_explore_habloss.ipynb`. The POC includes:
-- **Preprocessing pipeline**: Patches sample images into 128×128 tiles with mask upsampling to match image resolution
-- **Model architecture**: Simple encoder-decoder CNN with 3 encoding blocks, 2 decoding blocks, and ~500k parameters
-- **Training setup**: 80/20 train/validation split with CrossEntropyLoss and Adam optimizer
-- **Input**: 6-channel images (RGB before + RGB after)
-- **Output**: 2-class segmentation (land-take vs. no change)
+### U-Net Baseline (`03_smp_unet_baseline.ipynb`)
+- **Architecture**: U-Net with ResNet34 encoder (segmentation_models_pytorch)
+- **Input**: Single Sentinel-2 image (12 bands)
+- **Patch size**: 64×64
+- **Training**: 10 epochs, CrossEntropyLoss, Adam optimizer
+- **Normalization**: Scale by 10000 + per-channel standardization
 
-The notebook demonstrates the full pipeline from data loading through model training and evaluation visualization.
+### FCEF Baseline (`fc_early_fusion.ipynb`)
+- **Architecture**: Fully Convolutional Early Fusion (FCEF)
+- **Input**: Time series of 7 Sentinel-2 images (12 bands each)
+- **Patch size**: 64×64
+- **Training**: 10 epochs, CrossEntropyLoss, Adam optimizer
+- **Normalization**: Scale by 10000 + per-channel standardization
 
-## Initial repo setup
-- put messy one time stuff in notebooks folder
-- put reusable code in src 
-- config.py should contain path to data 
+**Fair Comparison**: Both models use identical data splits (70/15/15), normalization, patch size, and random seeds for reproducible comparison.
 
-### data
-- raw data from NINA should be in data/raw, and intermediate and processed in data/interm and data/processed 
-- data/raw/vhr: actual satelite images, multi-band, before and after
-- data/raw/masks: binary land take masks (names matching satelite images in vhr)
+## Repository Structure
 
-### src/data
-- **HablossSampleDataset**: PyTorch Dataset class for loading VHR imagery and masks. Takes a list of file IDs and returns paired tensors of shape (C, H, W) for images and (H, W) for masks.
+### `notebooks/`
+- Exploratory notebooks and baseline experiments
+
+### `src/`
+- `config.py`: Data paths configuration
+- `data/splits.py`: Shared train/val/test splitting (70/15/15, random_state=42)
+- `data/transform.py`: Shared normalization pipeline
+- `data/sentinel_habloss_dataset.py`: Single-image Sentinel-2 dataset for U-Net
+- `data/timeseries_dataset.py`: Time series Sentinel-2 dataset for FCEF
+
+### `data/`
+- `raw/Sentinel/`: Sentinel-2 time series GeoTIFFs
+- `raw/masks/`: Binary land-take masks
+- `processed/`: Preprocessed data

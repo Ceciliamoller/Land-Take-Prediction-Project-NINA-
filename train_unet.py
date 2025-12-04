@@ -16,6 +16,13 @@ from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
 import wandb
 
+print(">>> train_unet.py started")
+
+
+# Disable cuDNN completely for P100 compatibility
+torch.backends.cudnn.enabled = False
+torch.backends.cudnn.benchmark = False
+
 # Add project root to path
 root = Path(__file__).resolve().parent
 sys.path.append(str(root))

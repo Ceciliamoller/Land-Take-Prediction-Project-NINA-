@@ -1,0 +1,87 @@
+==========================================
+Starting U-Net training job
+Job ID:        23675041
+Job name:      unet_landtake
+Node(s):       idun-09-15
+Partition:     GPUQ
+GPUs:          
+==========================================
+
+Running from directory: /cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-
+
+GPU status:
+Fri Nov 28 12:26:34 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla P100-PCIE-16GB           On  |   00000000:82:00.0 Off |                    0 |
+| N/A   33C    P0             26W /  250W |       0MiB /  16384MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+Starting python train_unet.py
+All random seeds set to 42
+Using device: cuda
+
+================================================================================
+DATA SPLITS
+================================================================================
+Total reference IDs found: 54
+Train tiles: 37 (~69%)
+Val tiles: 8 (~15%)
+Test tiles: 9 (~17%)
+✓ Using SHARED splits with FCEF baseline (random_state=42)
+
+================================================================================
+NORMALIZATION
+================================================================================
+Estimating per-channel mean and std from training data...
+✓ Computed normalization stats: 126 channels
+  Mean (first 5): ['0.1171', '0.1132', '0.1026', '0.1349', '0.2447']
+  Std (first 5): ['0.0371', '0.0410', '0.0574', '0.0498', '0.0545']
+
+================================================================================
+DATASETS
+================================================================================
+✓ Datasets created with SHARED normalization and patch_size=64
+Training patches: 740 (from 37 tiles)
+Validation patches: 80 (from 8 tiles)
+Test patches: 90 (from 9 tiles)
+Number of input channels: 126
+
+================================================================================
+MODEL
+================================================================================
+✓ U-Net model created with 126 input channels
+  Encoder: resnet34
+  Encoder weights: imagenet
+  Classes: 2
+
+================================================================================
+WANDB INITIALIZATION
+================================================================================
+✓ WandB initialized
+
+================================================================================
+TRAINING
+================================================================================
+[1;34mwandb[0m: 
+[1;34mwandb[0m: You can sync this run to the cloud by running:
+[1;34mwandb[0m: [1mwandb sync /cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/wandb/offline-run-20251128_122715-r0x7c8ok[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/offline-run-20251128_122715-r0x7c8ok/logs[0m
+
+==========================================
+Job finished
+==========================================

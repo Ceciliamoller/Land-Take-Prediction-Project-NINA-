@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/train_early_fusion.py", line 25, in <module>
+    from src.data.timeseries_dataset import TimeSeriesDataset
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/src/data/timeseries_dataset.py", line 6, in <module>
+    from src.config import (
+ImportError: cannot import name 'PLANETSCOPE_DIR' from 'src.config' (/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/src/config.py)

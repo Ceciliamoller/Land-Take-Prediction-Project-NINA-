@@ -1,0 +1,38 @@
+==========================================
+Starting FCEF Early Fusion training job
+Job ID:        23673161
+Job name:      fcef_landtake
+Node(s):       idun-07-04
+Partition:     GPUQ
+GPUs:          
+==========================================
+
+Running from directory: /cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-
+
+GPU status:
+Thu Nov 27 17:32:15 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-PCIE-40GB          On  |   00000000:13:00.0 Off |                    0 |
+| N/A   26C    P0             33W /  250W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+Starting python train_early_fusion.py
+
+==========================================
+Job finished
+==========================================

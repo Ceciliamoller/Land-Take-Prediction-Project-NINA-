@@ -1,0 +1,34 @@
+==========================================
+Starting U-Net training job
+Job ID:        23675065
+Job name:      unet_landtake
+Node(s):       idun-09-15
+Partition:     GPUQ
+GPUs:          
+==========================================
+
+Running from directory: /cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-
+
+GPU status:
+Fri Nov 28 12:51:09 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla P100-PCIE-16GB           On  |   00000000:82:00.0 Off |                    0 |
+| N/A   35C    P0             28W /  250W |       0MiB /  16384MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+Starting python train_unet.py

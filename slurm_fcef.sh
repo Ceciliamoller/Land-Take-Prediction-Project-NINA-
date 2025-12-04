@@ -12,28 +12,37 @@
 #SBATCH --output=logs/fcef_%j.out
 #SBATCH --error=logs/fcef_%j.err
 
-# Print job info
 echo "=========================================="
-echo "Starting FCEF training job"
-echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $SLURM_NODELIST"
+echo "Starting FCEF Early Fusion training job"
+echo "Job ID:        $SLURM_JOB_ID"
+echo "Job name:      $SLURM_JOB_NAME"
+echo "Node(s):       $SLURM_NODELIST"
+echo "Partition:     $SLURM_JOB_PARTITION"
+echo "GPUs:          $SLURM_GPUS"
 echo "=========================================="
 echo ""
 
-# Load modules
+export WANDB_MODE=offline
+
 module purge
 module load Python/3.10.8-GCCcore-12.2.0
 
-# Activate virtual environment
+WORKDIR=${SLURM_SUBMIT_DIR}
+cd "$WORKDIR"
+
+# Activate project venv
 source .venv/bin/activate
 
-# Set WandB API key (if not in .env)
-# export WANDB_API_KEY="your_key_here"
+echo "Running from directory: $WORKDIR"
+echo ""
 
-# Create logs directory if it doesn't exist
+echo "GPU status:"
+nvidia-smi || echo "nvidia-smi not available"
+echo ""
+
 mkdir -p logs
 
-# Run training
+echo "Starting python train_early_fusion.py"
 python train_early_fusion.py
 
 echo ""

@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "rasterio/_base.pyx", line 310, in rasterio._base.DatasetBase.__init__
+  File "rasterio/_base.pyx", line 221, in rasterio._base.open_dataset
+  File "rasterio/_err.pyx", line 359, in rasterio._err.exc_wrap_pointer
+rasterio._err.CPLE_OpenFailedError: /cluster/work/cecilmb/data/raw/Sentinel/a22-03234382362865_37-98131146771407: No such file or directory
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/train_early_fusion.py", line 444, in <module>
+    main()
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/train_early_fusion.py", line 184, in main
+    mean, std = compute_normalization_stats(temp_train_ds, num_samples=CONFIG["num_samples_for_stats"])
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/src/data/transform.py", line 43, in compute_normalization_stats
+    img_patch, _ = dataset[idx]
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/src/data/timeseries_dataset.py", line 49, in __getitem__
+    with rasterio.open(img_path) as src:
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/.venv/lib/python3.10/site-packages/rasterio/env.py", line 463, in wrapper
+    return f(*args, **kwds)
+  File "/cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/.venv/lib/python3.10/site-packages/rasterio/__init__.py", line 356, in open
+    dataset = DatasetReader(path, driver=driver, sharing=sharing, **kwargs)
+  File "rasterio/_base.pyx", line 312, in rasterio._base.DatasetBase.__init__
+rasterio.errors.RasterioIOError: /cluster/work/cecilmb/data/raw/Sentinel/a22-03234382362865_37-98131146771407: No such file or directory

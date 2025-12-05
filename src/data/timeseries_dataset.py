@@ -5,22 +5,22 @@ from torch.utils.data import Dataset
 
 from src.config import (
     SENTINEL_DIR,
-    PLANETSCOPE_DIR,
     VHR_DIR,
     MASK_DIR,
 )
 
+
 class TimeSeriesDataset(Dataset):
     """
-    Loads ONE sensor per sample and reshapes it into (T, C, H, W)
-    so it can be fed directly to the torchrs FD-CD models.
+    Loads one sensor per sample and reshapes it into (T, C, H, W)
+    so it can be fed directly to the temporal models.
     """
 
     def __init__(self, ids, transform, sensor: str = "sentinel", slice_mode: str = None):
         """
         ids: list of REFIDs
-        sensor: "sentinel", "planetscope", "vhr"
-        slice_mode: None | "first_half"
+        sensor: "sentinel" or "vhr"
+        slice_mode: None or "first_half"
         """
         self.ids = ids
         self.sensor = sensor.lower()
@@ -36,8 +36,6 @@ class TimeSeriesDataset(Dataset):
         # 1) pick image path by sensor
         if self.sensor == "sentinel":
             img_path = SENTINEL_DIR / f"{fid}"
-        elif self.sensor == "planetscope":
-            img_path = PLANETSCOPE_DIR / f"{fid}"
         elif self.sensor == "vhr":
             img_path = VHR_DIR / f"{fid}"
         else:
@@ -58,12 +56,6 @@ class TimeSeriesDataset(Dataset):
             H, W = img.shape[1], img.shape[2]
             img = img.reshape(7, 2, 9, H, W)
             img = img.reshape(14, 9, H, W)
-
-        elif self.sensor == "planetscope":
-            # 42 = 7 * 2 * 3
-            H, W = img.shape[1], img.shape[2]
-            img = img.reshape(7, 2, 3, H, W)
-            img = img.reshape(14, 3, H, W)
 
         elif self.sensor == "vhr":
             # 6 = 2 * 3

@@ -33,8 +33,10 @@ def find_file_by_prefix(base_dir: Path, fid: str) -> Path:
 
 class TimeSeriesDataset(Dataset):
     """
-    Loads one sensor per sample and reshapes it into (T, C, H, W)
+    Loads time series data and reshapes it into (T, C, H, W)
     so it can be fed directly to temporal models (like the FCEF baseline).
+
+    Now supports multiple patches per tile per epoch for fair comparison with U-Net.
 
     Assumptions:
       - `ids` are REFIDs that match the *prefix* of the filenames in
@@ -47,16 +49,19 @@ class TimeSeriesDataset(Dataset):
         transform,
         sensor: str = "sentinel",
         slice_mode: str = None,
+        patches_per_image: int = 20,
     ):
         """
         ids: list of REFIDs (filename stems without the long suffix)
         sensor: "sentinel" or "vhr"
         slice_mode: None or "first_half"
+        patches_per_image: Number of patches to sample per tile per epoch (default 20)
         """
         self.ids = ids
         self.sensor = sensor.lower()
         self.slice_mode = slice_mode
         self.transform = transform
+        self.patches_per_image = patches_per_image
 
         # Pre-resolve image and mask paths once for stability and speed
         self.img_paths: dict[str, Path] = {}
@@ -76,10 +81,13 @@ class TimeSeriesDataset(Dataset):
             self.mask_paths[fid] = mask_path
 
     def __len__(self):
-        return len(self.ids)
+        # Total patches per epoch = num_tiles * patches_per_image
+        return len(self.ids) * self.patches_per_image
 
     def __getitem__(self, idx):
-        fid = self.ids[idx]
+        # Map global idx to tile idx (multiple patches per tile)
+        tile_idx = idx // self.patches_per_image
+        fid = self.ids[tile_idx]
 
         img_path = self.img_paths[fid]
         mask_path = self.mask_paths[fid]

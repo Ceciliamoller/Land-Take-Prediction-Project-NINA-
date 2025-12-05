@@ -10,15 +10,46 @@ from src.config import (
 )
 
 
+def find_file_by_prefix(base_dir: Path, fid: str) -> Path:
+    """
+    Find a file in base_dir whose name starts with fid and ends with .tif or .tiff.
+
+    Example:
+        fid = "a22-0323..._37-98..."
+        file = "a22-0323..._37-98..._RGBNIRRSWIRQ_Mosaic.tif"
+
+    This assumes there is exactly one such file per fid.
+    """
+    candidates = sorted(
+        list(base_dir.glob(f"{fid}*.tif")) +
+        list(base_dir.glob(f"{fid}*.tiff"))
+    )
+    if not candidates:
+        raise FileNotFoundError(f"No file starting with {fid} in {base_dir}")
+    if len(candidates) > 1:
+        raise RuntimeError(f"Multiple files starting with {fid} in {base_dir}: {candidates}")
+    return candidates[0]
+
+
 class TimeSeriesDataset(Dataset):
     """
     Loads one sensor per sample and reshapes it into (T, C, H, W)
-    so it can be fed directly to the temporal models.
+    so it can be fed directly to temporal models (like the FCEF baseline).
+
+    Assumptions:
+      - `ids` are REFIDs that match the *prefix* of the filenames in
+        SENTINEL_DIR / VHR_DIR / MASK_DIR.
     """
 
-    def __init__(self, ids, transform, sensor: str = "sentinel", slice_mode: str = None):
+    def __init__(
+        self,
+        ids,
+        transform,
+        sensor: str = "sentinel",
+        slice_mode: str = None,
+    ):
         """
-        ids: list of REFIDs
+        ids: list of REFIDs (filename stems without the long suffix)
         sensor: "sentinel" or "vhr"
         slice_mode: None or "first_half"
         """
@@ -27,47 +58,56 @@ class TimeSeriesDataset(Dataset):
         self.slice_mode = slice_mode
         self.transform = transform
 
+        # Pre-resolve image and mask paths once for stability and speed
+        self.img_paths: dict[str, Path] = {}
+        self.mask_paths: dict[str, Path] = {}
+
+        for fid in self.ids:
+            if self.sensor == "sentinel":
+                img_path = find_file_by_prefix(SENTINEL_DIR, fid)
+            elif self.sensor == "vhr":
+                img_path = find_file_by_prefix(VHR_DIR, fid)
+            else:
+                raise ValueError(f"Unknown sensor: {self.sensor}")
+
+            mask_path = find_file_by_prefix(MASK_DIR, fid)
+
+            self.img_paths[fid] = img_path
+            self.mask_paths[fid] = mask_path
+
     def __len__(self):
         return len(self.ids)
 
     def __getitem__(self, idx):
         fid = self.ids[idx]
 
-        # 1) pick image path by sensor
-        if self.sensor == "sentinel":
-            img_path = SENTINEL_DIR / f"{fid}"
-        elif self.sensor == "vhr":
-            img_path = VHR_DIR / f"{fid}"
-        else:
-            raise ValueError(f"Unknown sensor: {self.sensor}")
+        img_path = self.img_paths[fid]
+        mask_path = self.mask_paths[fid]
 
-        mask_path = MASK_DIR / f"{fid}"
-
-        # 2) read arrays
+        # 1) read arrays
         with rasterio.open(img_path) as src:
             img = src.read()  # (bands, H, W)
         with rasterio.open(mask_path) as src_m:
             mask = src_m.read(1)  # (H, W)
 
-        # 3) reshape to (T, C, H, W) depending on sensor
+        # 2) reshape to (T, C, H, W) depending on sensor
         if self.sensor == "sentinel":
-            # 126 = 7 years * 2 quarters * 9 bands
-            # img: (126, H, W) -> (7, 2, 9, H, W) -> (14, 9, H, W)
+            # Expected layout: 126 = 7 years * 2 quarters * 9 bands
             H, W = img.shape[1], img.shape[2]
             img = img.reshape(7, 2, 9, H, W)
             img = img.reshape(14, 9, H, W)
 
         elif self.sensor == "vhr":
-            # 6 = 2 * 3
+            # Expected layout: 6 = 2 times * 3 bands
             H, W = img.shape[1], img.shape[2]
             img = img.reshape(2, 3, H, W)
 
-        # 4) optionally take first half of the time series
+        # 3) optionally take first half of the time series
         if self.slice_mode == "first_half":
             T = img.shape[0]
             img = img[: T // 2]
 
-        # 5) to torch
+        # 4) to torch tensors
         img = torch.from_numpy(img).float()     # (T, C, H, W)
         mask = torch.from_numpy(mask).long()    # (H, W)
         mask = (mask > 0).long()

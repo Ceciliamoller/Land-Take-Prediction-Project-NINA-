@@ -1,4 +1,0 @@
-wandb: Tracking run with wandb version 0.23.0
-wandb: W&B syncing is set to `offline` in this directory. Run `wandb online` or set WANDB_MODE=online to enable cloud syncing.
-wandb: Run data is saved locally in /cluster/home/cecilmb/Land-Take-Prediction-Project-NINA-/wandb/offline-run-20251128_125620-wgkvrtxq
-[2025-11-28T13:08:51.410] error: *** JOB 23675102 ON idun-09-15 CANCELLED AT 2025-11-28T13:08:51 DUE to SIGNAL Terminated ***

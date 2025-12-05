@@ -52,7 +52,7 @@ CONFIG = {
     "num_classes": 2,
     
     # Training
-    "epochs": 10,
+    "epochs": 50,
     "learning_rate": 1e-3,
     "batch_size": 8,
     "patch_size": 64,

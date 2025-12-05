@@ -171,7 +171,10 @@ def main():
     print("\n" + "="*80)
     print("NORMALIZATION")
     print("="*80)
-    temp_train_transform = ComposeTS([NormalizeBy(10000.0)])
+    temp_train_transform = ComposeTS([
+        NormalizeBy(10000.0),
+        CenterCropTS(CONFIG["patch_size"])
+    ])
     
     temp_train_ds = TimeSeriesDataset(
         train_ref_ids,

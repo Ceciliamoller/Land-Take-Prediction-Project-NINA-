@@ -201,7 +201,7 @@ def main():
     print("DATASETS")
     print("="*80)
     
-    # Training transform with augmentation (like U-Net)
+    # Training transform with random crop and augmentation (like U-Net)
     train_transform_ops = [
         NormalizeBy(10000.0),
         Normalize(mean, std),
@@ -214,6 +214,7 @@ def main():
         ])
     train_transform = ComposeTS(train_transform_ops)
     
+    # Val/test transforms use CenterCropTS for deterministic, stable metrics
     val_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
@@ -249,9 +250,9 @@ def main():
     )
     
     print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile)")
-    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile)")
-    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile)")
+    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile) - random crops + augmentation")
+    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile) - deterministic center crops")
+    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile) - deterministic center crops")
     print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders

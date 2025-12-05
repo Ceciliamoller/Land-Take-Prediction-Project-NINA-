@@ -307,6 +307,7 @@ def main():
         mean=mean,
         std=std,
         augment=False,
+        use_center_crop=True,
         ref_ids=val_ref_ids
     )
     
@@ -317,13 +318,14 @@ def main():
         mean=mean,
         std=std,
         augment=False,
+        use_center_crop=True,
         ref_ids=test_ref_ids
     )
     
     print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Training patches: {len(train_ds)} (from {len(train_ref_ids)} tiles)")
-    print(f"Validation patches: {len(val_ds)} (from {len(val_ref_ids)} tiles)")
-    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles)")
+    print(f"Training patches: {len(train_ds)} (from {len(train_ref_ids)} tiles) - random crops + augmentation")
+    print(f"Validation patches: {len(val_ds)} (from {len(val_ref_ids)} tiles) - deterministic center crops")
+    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles) - deterministic center crops")
     print(f"Number of input channels: {train_ds.num_bands}")
     
     # Create dataloaders

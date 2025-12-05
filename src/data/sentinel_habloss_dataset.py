@@ -37,6 +37,7 @@ class SentinelHablossPatchDataset(Dataset):
         mean: Optional[Sequence[float]] = None,
         std: Optional[Sequence[float]] = None,
         augment: bool = False,
+        use_center_crop: bool = False,
         ref_ids: Optional[list[str]] = None,
     ):
         """
@@ -50,6 +51,7 @@ class SentinelHablossPatchDataset(Dataset):
             mean: Optional sequence for per-channel mean normalization (length = total bands)
             std: Optional sequence for per-channel std normalization (length = total bands)
             augment: Whether to apply random flips for data augmentation
+            use_center_crop: If True, use deterministic center crop instead of random crop (for val/test)
             ref_ids: Optional list of REFIDs to include. If None, uses all matching pairs.
         
         Raises:
@@ -60,6 +62,7 @@ class SentinelHablossPatchDataset(Dataset):
         self.patch_size = patch_size
         self.patches_per_image = patches_per_image
         self.augment = augment
+        self.use_center_crop = use_center_crop
         self.ref_ids = set(ref_ids) if ref_ids is not None else None
         
         self.pairs = self._find_pairs()
@@ -150,8 +153,14 @@ class SentinelHablossPatchDataset(Dataset):
         
         max_y = H - self.patch_size
         max_x = W - self.patch_size
-        y = random.randint(0, max_y)
-        x = random.randint(0, max_x)
+        
+        # Use center crop for val/test (deterministic), random crop for train
+        if self.use_center_crop:
+            y = max_y // 2
+            x = max_x // 2
+        else:
+            y = random.randint(0, max_y)
+            x = random.randint(0, max_x)
         
         img_patch = img[:, y:y+self.patch_size, x:x+self.patch_size]
         mask_patch = mask[y:y+self.patch_size, x:x+self.patch_size]

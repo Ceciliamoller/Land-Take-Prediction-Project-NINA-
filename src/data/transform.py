@@ -157,3 +157,43 @@ class ComposeTS:
         for op in self.ops:
             x, mask = op(x, mask)
         return x, mask
+
+
+class RandomFlipTS:
+    """Random horizontal and vertical flips for time series data.
+    Applies the same flip to all timesteps and the mask.
+    """
+    def __init__(self, p_horizontal=0.5, p_vertical=0.5):
+        self.p_horizontal = p_horizontal
+        self.p_vertical = p_vertical
+    
+    def __call__(self, x, mask):
+        # x: (T, C, H, W), mask: (H, W)
+        if random.random() < self.p_horizontal:
+            x = torch.flip(x, dims=[3])  # flip width
+            mask = torch.flip(mask, dims=[1])
+        
+        if random.random() < self.p_vertical:
+            x = torch.flip(x, dims=[2])  # flip height
+            mask = torch.flip(mask, dims=[0])
+        
+        return x, mask
+
+
+class RandomRotate90TS:
+    """Random 90-degree rotations for time series data.
+    Applies the same rotation to all timesteps and the mask.
+    """
+    def __init__(self, p=0.5):
+        self.p = p
+    
+    def __call__(self, x, mask):
+        # x: (T, C, H, W), mask: (H, W)
+        if random.random() < self.p:
+            # Random number of 90-degree rotations (0, 1, 2, or 3)
+            k = random.randint(0, 3)
+            if k > 0:
+                x = torch.rot90(x, k=k, dims=[2, 3])
+                mask = torch.rot90(mask, k=k, dims=[0, 1])
+        
+        return x, mask

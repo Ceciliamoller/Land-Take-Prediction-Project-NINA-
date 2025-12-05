@@ -30,7 +30,9 @@ from src.data.transform import (
     NormalizeBy,
     RandomCropTS,
     CenterCropTS,
-    Normalize
+    Normalize,
+    RandomFlipTS,
+    RandomRotate90TS
 )
 from src.models.external.torchrs_fc_cd import FCEF
 
@@ -56,11 +58,15 @@ CONFIG = {
     "sensor": "sentinel",
     "temporal_mode": "first_half",  # 7 timesteps
     "patch_size": 64,
+    "patches_per_image_train": 20,  # Match U-Net: multiple patches per tile
+    "patches_per_image_val": 10,
+    "patches_per_image_test": 10,
     
     # Training
-    "epochs": 10,
+    "epochs": 50,  # Increased from 10 to match total gradient steps with U-Net
     "learning_rate": 1e-3,
-    "batch_size": 4,
+    "batch_size": 4,  # Kept modest for GPU memory (time series is larger than single image)
+    "augment_train": True,  # Enable spatial augmentation like U-Net
     
     # Normalization
     "normalization": "scale_10000_plus_standardize",
@@ -180,7 +186,8 @@ def main():
         train_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=temp_train_transform
+        transform=temp_train_transform,
+        patches_per_image=5,  # Just a few patches per tile for stats estimation
     )
     
     print("Estimating per-channel mean and std from training data...")
@@ -193,11 +200,19 @@ def main():
     print("\n" + "="*80)
     print("DATASETS")
     print("="*80)
-    train_transform = ComposeTS([
+    
+    # Training transform with augmentation (like U-Net)
+    train_transform_ops = [
         NormalizeBy(10000.0),
         Normalize(mean, std),
         RandomCropTS(CONFIG["patch_size"]),
-    ])
+    ]
+    if CONFIG["augment_train"]:
+        train_transform_ops.extend([
+            RandomFlipTS(p_horizontal=0.5, p_vertical=0.5),
+            RandomRotate90TS(p=0.5),
+        ])
+    train_transform = ComposeTS(train_transform_ops)
     
     val_transform = ComposeTS([
         NormalizeBy(10000.0),
@@ -215,25 +230,29 @@ def main():
         train_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=train_transform
+        transform=train_transform,
+        patches_per_image=CONFIG["patches_per_image_train"],
     )
     val_ds = TimeSeriesDataset(
         val_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=val_transform
+        transform=val_transform,
+        patches_per_image=CONFIG["patches_per_image_val"],
     )
     test_ds = TimeSeriesDataset(
         test_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=test_transform
+        transform=test_transform,
+        patches_per_image=CONFIG["patches_per_image_test"],
     )
     
     print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Train samples: {len(train_ds)} tiles")
-    print(f"Val samples: {len(val_ds)} tiles")
-    print(f"Test samples: {len(test_ds)} tiles")
+    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile)")
+    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile)")
+    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile)")
+    print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders
     def worker_init_fn(worker_id):
@@ -299,17 +318,24 @@ def main():
             "epochs": CONFIG["epochs"],
             "batch_size": CONFIG["batch_size"],
             "patch_size": CONFIG["patch_size"],
+            "patches_per_image_train": CONFIG["patches_per_image_train"],
+            "patches_per_image_val": CONFIG["patches_per_image_val"],
+            "patches_per_image_test": CONFIG["patches_per_image_test"],
+            "augment_train": CONFIG["augment_train"],
             "temporal_mode": CONFIG["temporal_mode"],
             "num_timesteps": T,
             "train_tiles": len(train_ref_ids),
             "val_tiles": len(val_ref_ids),
             "test_tiles": len(test_ref_ids),
+            "train_patches": len(train_ds),
+            "val_patches": len(val_ds),
+            "test_patches": len(test_ds),
             "normalization": CONFIG["normalization"],
             "random_seed": CONFIG["random_seed"],
             "train_ratio": CONFIG["train_ratio"],
             "val_ratio": CONFIG["val_ratio"],
             "test_ratio": CONFIG["test_ratio"],
-            "fair_comparison": "shared_splits_normalization_patch_size_with_UNet",
+            "fair_comparison": "full_parity_with_UNet_patches_augmentation_epochs",
         },
     )
     print("✓ WandB initialized")

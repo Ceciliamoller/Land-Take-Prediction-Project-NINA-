@@ -22,9 +22,12 @@ def compute_normalization_stats(
     training patches. These statistics should be computed ONCE from the training
     set and then applied consistently to train/val/test data.
     
+    Handles variable-sized inputs by computing statistics per-sample and averaging.
+    
     Args:
         dataset: PyTorch dataset that returns (image, mask) tuples
                  Image should already be scaled (e.g., divided by 10000)
+                 Can handle both 3D (C, H, W) and 4D (T, C, H, W) tensors
         num_samples: Number of random samples to use for estimation
     
     Returns:
@@ -38,16 +41,31 @@ def compute_normalization_stats(
     num_samples = min(num_samples, len(dataset))
     indices = random.sample(range(len(dataset)), num_samples)
     
-    patches = []
+    # Accumulate per-channel statistics
+    channel_means = []
+    channel_stds = []
+    
     for idx in indices:
         img_patch, _ = dataset[idx]
-        patches.append(img_patch)
+        
+        # Handle both 3D (C, H, W) and 4D (T, C, H, W) shapes
+        if img_patch.dim() == 4:  # (T, C, H, W) for time series
+            # Compute mean/std across time and spatial dimensions
+            per_channel_mean = img_patch.mean(dim=[0, 2, 3])  # (C,)
+            per_channel_std = img_patch.std(dim=[0, 2, 3])    # (C,)
+        elif img_patch.dim() == 3:  # (C, H, W) for standard images
+            # Compute mean/std across spatial dimensions
+            per_channel_mean = img_patch.mean(dim=[1, 2])  # (C,)
+            per_channel_std = img_patch.std(dim=[1, 2])    # (C,)
+        else:
+            raise ValueError(f"Expected 3D or 4D tensor, got shape {img_patch.shape}")
+        
+        channel_means.append(per_channel_mean)
+        channel_stds.append(per_channel_std)
     
-    all_patches = torch.stack(patches, dim=0)  # (N, C, H, W)
-    
-    # Compute mean and std across all spatial and sample dimensions
-    mean = all_patches.mean(dim=[0, 2, 3]).tolist()
-    std = all_patches.std(dim=[0, 2, 3]).tolist()
+    # Stack and average across all samples
+    mean = torch.stack(channel_means).mean(dim=0).tolist()
+    std = torch.stack(channel_stds).mean(dim=0).tolist()
     
     return mean, std
 

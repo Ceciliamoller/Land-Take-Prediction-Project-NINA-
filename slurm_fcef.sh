@@ -22,7 +22,6 @@ echo "GPUs:          $SLURM_GPUS"
 echo "=========================================="
 echo ""
 
-export WANDB_MODE=offline
 
 module purge
 module load Python/3.10.8-GCCcore-12.2.0

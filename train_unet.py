@@ -382,6 +382,7 @@ def main():
     wandb.init(
         project=CONFIG["wandb_project"],
         entity=CONFIG["wandb_entity"],
+	    name=f"UNet_patch{CONFIG['patch_size']}",
         config={
             "model": "Unet",
             "encoder": CONFIG["encoder_name"],

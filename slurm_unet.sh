@@ -23,7 +23,6 @@ echo "=========================================="
 echo ""
 
 
-export WANDB_MODE=offline
 export CUDNN_FRONTEND_OPERATION_RECORDING_DISABLED=1
 export CUBLAS_WORKSPACE_CONFIG=:16:8
 

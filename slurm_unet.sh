@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=unet_landtake
-#SBATCH --account=ie-idi
+#SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00

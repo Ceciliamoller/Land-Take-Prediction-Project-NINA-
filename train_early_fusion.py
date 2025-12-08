@@ -40,14 +40,13 @@ import wandb
 
 def log_example_batch(model, loader, device, step, name_prefix="val"):
     model.eval()
-    imgs, masks = next(iter(loader))        # imgs shape:
-                                            # UNet EF: (B, T, C, H, W)
-                                            # FCEF:    (B, T, C, H, W)
+    imgs, masks = next(iter(loader))        # imgs shape: (B, T, C, H, W)
+    
     with torch.no_grad():
         B, T, C, H, W = imgs.shape
-        # For U-Net early fusion, flatten T and C
-        x_unet = imgs.reshape(B, T * C, H, W).to(device)
-        logits = model(x_unet)
+        # FCEF expects (B, T, C, H, W)
+        x = imgs.to(device)
+        logits = model(x)
         preds = logits.argmax(dim=1).cpu()  # (B, H, W)
 
     masks = masks.cpu()

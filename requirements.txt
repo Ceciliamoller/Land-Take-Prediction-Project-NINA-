@@ -9,3 +9,4 @@ scikit-learn
 tqdm
 python-dotenv
 wandb
+monai

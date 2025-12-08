@@ -1,19 +1,19 @@
 #!/bin/bash
 
-#SBATCH --job-name=3Dunet_landtake
+#SBATCH --job-name=unet3d_landtake
 #SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
+#SBATCH --time=06:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
-#SBATCH --output=logs/unet_%j.out
-#SBATCH --error=logs/unet_%j.err
+#SBATCH --mem=40G
+#SBATCH --output=logs/unet3d_%j.out
+#SBATCH --error=logs/unet3d_%j.err
 
 echo "=========================================="
-echo "Starting U-Net training job"
+echo "Starting 3D U-Net training job"
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Job name:      $SLURM_JOB_NAME"
 echo "Node(s):       $SLURM_NODELIST"
@@ -38,6 +38,11 @@ source .venv/bin/activate
 echo "Running from directory: $WORKDIR"
 echo ""
 
+# Install monai if not already installed
+echo "Checking for MONAI installation..."
+python -c "import monai" 2>/dev/null || pip install monai
+echo ""
+
 echo "GPU status:"
 nvidia-smi || echo "nvidia-smi not available"
 echo ""
@@ -49,5 +54,5 @@ python train_3d_unet.py
 
 echo ""
 echo "=========================================="
-echo "Job finished"
+echo "Job finished: $(date)"
 echo "=========================================="

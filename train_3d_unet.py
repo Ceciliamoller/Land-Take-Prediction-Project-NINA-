@@ -1,7 +1,7 @@
 """
-U-Net Training Script for Land-Take Prediction
+3D U-Net Training Script for Land-Take Prediction
 
-Based on 03_smp_unet_baseline.ipynb
+Uses MONAI's 3D U-Net to process temporal dimension directly
 Fair comparison setup with FCEF baseline: shared splits, normalization, patch size, random seeds
 """
 
@@ -13,10 +13,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-import segmentation_models_pytorch as smp
+from monai.networks.nets import UNet as UNet3D
+from tqdm import tqdm
 import wandb
 
-print(">>> train_unet.py started")
+print(">>> train_3d_unet.py started")
 
 
 # Disable cuDNN completely for P100 compatibility
@@ -38,9 +39,8 @@ from src.data.transform import (
     CenterCropTS,
     Normalize,
     RandomFlipTS,
-    RandomRotate90TS,
+    RandomRotate90TS
 )
-from src.models.three_d_unet import ThreeDUNet
 
 
 # ============================================================================
@@ -57,21 +57,21 @@ CONFIG = {
     "test_ratio": 0.15,
     
     # Model
-    "encoder_name": "resnet34",
-    "encoder_weights": "imagenet",
+    "architecture": "UNet3D",
     "num_classes": 2,
-    # TimeSeries options (for 3D-UNet input via TimeSeriesDataset)
-    "sensor": "sentinel",
-    "temporal_mode": "first_half",
     
-    # Training
-    "epochs": 50,
-    "learning_rate": 1e-3,
-    "batch_size": 8,
+    # Data
+    "sensor": "sentinel",
+    "temporal_mode": "first_half",  # 7 timesteps
     "patch_size": 64,
     "patches_per_image_train": 20,
     "patches_per_image_val": 10,
     "patches_per_image_test": 10,
+    
+    # Training
+    "epochs": 50,
+    "learning_rate": 1e-3,
+    "batch_size": 4,  # Smaller batch size for 3D convolutions
     "augment_train": True,
     
     # Normalization
@@ -79,14 +79,11 @@ CONFIG = {
     "num_samples_for_stats": 2000,
     
     # DataLoader
-    "num_workers": 0,
+    "num_workers": 4,
     
     # WandB
     "wandb_project": "Baseline",
     "wandb_entity": "nina_prosjektoppgave",
-    
-    # Logging
-    "log_examples_every_n_epochs": 2,
 }
 
 
@@ -155,50 +152,58 @@ def compute_metrics_from_confusion(tp, fp, tn, fn, eps=1e-8):
 # TRAINING & VALIDATION
 # ============================================================================
 
-def train_one_epoch(model, loader, loss_fn, optimizer, device):
-    """Train for one epoch"""
+def train_one_epoch(model, loader, loss_fn, optimizer, device, scaler):
+    """Train for one epoch with 3D time series input"""
     model.train()
     total_loss = 0.0
 
-    for imgs, masks in loader:
-        # imgs from TimeSeriesDataset: (B, T, C, H, W)
-        imgs = imgs.to(device)
-        # Convert to (B, C, D, H, W) for Conv3d-based model
-        imgs = imgs.permute(0, 2, 1, 3, 4).contiguous()
+    for x, masks in loader:
+        # x shape: (B, T, C, H, W)
+        # Reshape to (B, C, T, H, W) for 3D U-Net (channels first, then temporal)
+        B, T, C, H, W = x.shape
+        x = x.permute(0, 2, 1, 3, 4)  # (B, C, T, H, W)
+        
+        x = x.to(device)
         masks = masks.to(device)
 
         optimizer.zero_grad()
         
         with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
-            logits = model(imgs)
+            logits = model(x)
+            # logits shape: (B, num_classes, H, W)
             loss = loss_fn(logits, masks)
 
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
-        total_loss += loss.item() * imgs.size(0)
+        total_loss += loss.item()
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     return avg_loss
 
 
 def validate(model, loader, loss_fn, device):
-    """Validate model"""
+    """Validate model with 3D time series input"""
     model.eval()
     total_loss = 0.0
     sum_tp = sum_fp = sum_tn = sum_fn = 0
 
     with torch.no_grad():
-        for imgs, masks in loader:
-            imgs = imgs.to(device)
-            imgs = imgs.permute(0, 2, 1, 3, 4).contiguous()
+        for x, masks in loader:
+            # x shape: (B, T, C, H, W)
+            # Reshape to (B, C, T, H, W) for 3D U-Net
+            B, T, C, H, W = x.shape
+            x = x.permute(0, 2, 1, 3, 4)  # (B, C, T, H, W)
+            
+            x = x.to(device)
             masks = masks.to(device)
 
             with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
-                logits = model(imgs)
+                logits = model(x)
                 loss = loss_fn(logits, masks)
             
-            total_loss += loss.item() * imgs.size(0)
+            total_loss += loss.item()
 
             pred = torch.argmax(logits, dim=1)
             tp, fp, tn, fn = compute_confusion_binary(pred, masks, positive_class=1)
@@ -207,51 +212,10 @@ def validate(model, loader, loss_fn, device):
             sum_tn += tn
             sum_fn += fn
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     metrics = compute_metrics_from_confusion(sum_tp, sum_fp, sum_tn, sum_fn)
     
     return avg_loss, metrics
-
-
-def log_examples(model, loader, device, step, phase="val"):
-    """Log example predictions to wandb"""
-    model.eval()
-    with torch.no_grad():
-        imgs, masks = next(iter(loader))
-        # imgs: (B, T, C, H, W)
-        imgs_device = imgs.to(device)
-        imgs_for_model = imgs_device.permute(0, 2, 1, 3, 4).contiguous()  # (B, C, D, H, W)
-        preds = model(imgs_for_model)
-
-        preds_class = preds.argmax(dim=1)
-
-        # Use first timestep RGB for visualization: imgs[:, 0, C, H, W] -> (B, C, H, W)
-        rgb_imgs = imgs[:, 0, :3, :, :].clone()
-        for i in range(3):
-            min_val = rgb_imgs[:, i, :, :].min()
-            max_val = rgb_imgs[:, i, :, :].max()
-            if max_val > min_val:
-                rgb_imgs[:, i, :, :] = (rgb_imgs[:, i, :, :] - min_val) / (max_val - min_val)
-        
-        wandb_images = []
-        for i in range(min(4, imgs.size(0))):
-            wandb_images.append(
-                wandb.Image(
-                    rgb_imgs[i].cpu(),
-                    masks={
-                        "ground_truth": {
-                            "mask_data": masks[i].cpu().numpy(),
-                            "class_labels": {0: "background", 1: "land-take"}
-                        },
-                        "prediction": {
-                            "mask_data": preds_class[i].cpu().numpy(),
-                            "class_labels": {0: "background", 1: "land-take"}
-                        },
-                    },
-                )
-            )
-        
-        wandb.log({f"{phase}_examples": wandb_images}, step=step)
 
 
 # ============================================================================
@@ -285,34 +249,35 @@ def main():
     print(f"Test tiles: {len(test_ref_ids)} (~{100*len(test_ref_ids)/len(all_ref_ids):.0f}%)")
     print(f"✓ Using SHARED splits with FCEF baseline (random_state={CONFIG['random_seed']})")
     
-    # Compute normalization stats for time-series (first half)
+    # Compute normalization stats
     print("\n" + "="*80)
     print("NORMALIZATION")
     print("="*80)
     temp_train_transform = ComposeTS([
         NormalizeBy(10000.0),
-        CenterCropTS(CONFIG["patch_size"]),
+        CenterCropTS(CONFIG["patch_size"])
     ])
-
+    
     temp_train_ds = TimeSeriesDataset(
         train_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
         transform=temp_train_transform,
-        patches_per_image=5,
+        patches_per_image=5,  # Just a few patches per tile for stats estimation
     )
-
+    
     print("Estimating per-channel mean and std from training data...")
     mean, std = compute_normalization_stats(temp_train_ds, num_samples=CONFIG["num_samples_for_stats"])
     print(f"✓ Computed normalization stats: {len(mean)} channels")
-    print(f"  Mean (first 5): {[f'{m:.4f}' for m in mean[:5]]}")
+    print(f"  Mean (first 5): {[f'{m:.4f}' for m in mean[:5]]}") 
     print(f"  Std (first 5): {[f'{s:.4f}' for s in std[:5]]}")
-
-    # Create datasets (time series mode: first half of temporal stack)
+    
+    # Create datasets
     print("\n" + "="*80)
     print("DATASETS")
     print("="*80)
-
+    
+    # Training transform with random crop and augmentation
     train_transform_ops = [
         NormalizeBy(10000.0),
         Normalize(mean, std),
@@ -324,19 +289,20 @@ def main():
             RandomRotate90TS(p=0.5),
         ])
     train_transform = ComposeTS(train_transform_ops)
-
+    
+    # Val/test transforms use CenterCropTS for deterministic, stable metrics
     val_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
         CenterCropTS(CONFIG["patch_size"]),
     ])
-
+    
     test_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
         CenterCropTS(CONFIG["patch_size"]),
     ])
-
+    
     train_ds = TimeSeriesDataset(
         train_ref_ids,
         sensor=CONFIG["sensor"],
@@ -358,11 +324,12 @@ def main():
         transform=test_transform,
         patches_per_image=CONFIG["patches_per_image_test"],
     )
-
+    
     print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Training patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile) - random crops + augmentation")
-    print(f"Validation patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile) - deterministic center crops")
+    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile) - random crops + augmentation")
+    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile) - deterministic center crops")
     print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile) - deterministic center crops")
+    print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders
     def worker_init_fn(worker_id):
@@ -391,101 +358,106 @@ def main():
         num_workers=CONFIG["num_workers"]
     )
     
+    print(f"✓ Dataloaders created with reproducible shuffling (seed={CONFIG['random_seed']})")
+    
     # Build model
     print("\n" + "="*80)
     print("MODEL")
     print("="*80)
-    # Build 3D U-Net model
-    print("\n" + "="*80)
-    print("MODEL")
-    print("="*80)
-
-    # Peek a sample to get channels/timesteps
+    
+    # Get sample batch to determine input shape
     sample_x, _ = next(iter(train_loader))
-    # sample_x: (B, T, C, H, W)
-    B, T, C, H, W = sample_x.shape
-    print(f"Data sample shape (B, T, C, H, W): {sample_x.shape}")
-
-    model = ThreeDUNet(in_channels=C, num_classes=CONFIG["num_classes"]).to(device)
-
+    _, T, C, H, W = sample_x.shape
+    
+    # MONAI 3D U-Net expects input shape (B, C, T, H, W)
+    # channels: number of spectral bands
+    # spatial_dims: 3 (for 3D convolutions: temporal + 2D spatial)
+    model = UNet3D(
+        spatial_dims=3,
+        in_channels=C,
+        out_channels=CONFIG["num_classes"],
+        channels=(16, 32, 64, 128, 256),
+        strides=(2, 2, 2, 2),
+        num_res_units=2,
+    ).to(device)
+    
     print(f"✓ 3D U-Net model created")
-    print(f"  Input channels per timestep: {C}")
-    print(f"  Timesteps (depth): {T}")
-    print(f"  Classes: {CONFIG['num_classes']}")
-
-    # Loss and optimizer
+    print(f"  Timesteps: {T}")
+    print(f"  Channels (spectral bands): {C}")
+    print(f"  Input shape: (B, {C}, {T}, {H}, {W})")
+    print(f"  Output classes: {CONFIG['num_classes']}")
+    print(f"  Architecture: MONAI UNet3D")
+    
+    # Loss, optimizer, and scaler
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG["learning_rate"])
-
+    scaler = torch.amp.GradScaler("cuda")
+    
     # Initialize WandB
     print("\n" + "="*80)
     print("WANDB INITIALIZATION")
     print("="*80)
-    wandb.init(
+    run = wandb.init(
         project=CONFIG["wandb_project"],
         entity=CONFIG["wandb_entity"],
-        name=f"3DUNet_patch{CONFIG['patch_size']}_t{T}",
+        name=f"UNet3D_{CONFIG['sensor']}_patch{CONFIG['patch_size']}_t{T}",
         config={
-            "model": "3D-UNet",
+            "model": "UNet3D",
+            "architecture": CONFIG["architecture"],
+            "spatial_dims": 3,
             "in_channels": C,
             "timesteps": T,
-            "classes": CONFIG["num_classes"],
+            "out_channels": CONFIG["num_classes"],
             "learning_rate": CONFIG["learning_rate"],
             "batch_size": CONFIG["batch_size"],
             "patch_size": CONFIG["patch_size"],
             "epochs": CONFIG["epochs"],
-            "train_patches_per_image": CONFIG["patches_per_image_train"],
-            "val_patches_per_image": CONFIG["patches_per_image_val"],
-            "test_patches_per_image": CONFIG["patches_per_image_test"],
-            "train_ref_ids": len(train_ref_ids),
-            "val_ref_ids": len(val_ref_ids),
-            "test_ref_ids": len(test_ref_ids),
-            "augmentation": CONFIG["augment_train"],
+            "patches_per_image_train": CONFIG["patches_per_image_train"],
+            "patches_per_image_val": CONFIG["patches_per_image_val"],
+            "patches_per_image_test": CONFIG["patches_per_image_test"],
+            "augment_train": CONFIG["augment_train"],
+            "temporal_mode": CONFIG["temporal_mode"],
+            "sensor": CONFIG["sensor"],
+            "train_tiles": len(train_ref_ids),
+            "val_tiles": len(val_ref_ids),
+            "test_tiles": len(test_ref_ids),
+            "train_patches": len(train_ds),
+            "val_patches": len(val_ds),
+            "test_patches": len(test_ds),
             "normalization": CONFIG["normalization"],
             "random_seed": CONFIG["random_seed"],
             "train_ratio": CONFIG["train_ratio"],
             "val_ratio": CONFIG["val_ratio"],
             "test_ratio": CONFIG["test_ratio"],
-            "fair_comparison": "shared_splits_normalization_patch_size_with_FCEF",
+            "fair_comparison": "identical_pipeline_with_FCEF_3D_convolutions",
         },
     )
-
-    wandb.watch(model, log="all", log_freq=100)
+    
     print("✓ WandB initialized")
     
     # Training loop
     print("\n" + "="*80)
     print("TRAINING")
     print("="*80)
-    train_losses = []
-    val_losses = []
-    val_ious = []
-    val_f1s = []
     
     for epoch in range(CONFIG["epochs"]):
-        train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
-        train_losses.append(train_loss)
+        # Training
+        train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, device, scaler)
         
+        # Validation
         val_loss, val_metrics = validate(model, val_loader, loss_fn, device)
-        val_losses.append(val_loss)
-        val_ious.append(val_metrics['iou'])
-        val_f1s.append(val_metrics['f1'])
         
         # Log to WandB
-        wandb.log({
+        run.log({
             "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "val_iou": val_metrics['iou'],
-            "val_f1": val_metrics['f1'],
-            "val_precision": val_metrics['precision'],
-            "val_recall": val_metrics['recall'],
-            "val_accuracy": val_metrics['accuracy'],
+            "avg_train_loss": train_loss,
+            "avg_val_loss": val_loss,
+            "IoU": val_metrics['iou'],
+            "F1": val_metrics['f1'],
+            "Precision": val_metrics['precision'],
+            "Recall": val_metrics['recall'],
+            "Accuracy": val_metrics['accuracy']
         })
-        
-        # Log example predictions
-        if (epoch + 1) % CONFIG["log_examples_every_n_epochs"] == 0:
-            log_examples(model, val_loader, device, step=epoch + 1, phase="val")
         
         # Print epoch summary
         print(
@@ -495,7 +467,8 @@ def main():
             f"IoU={val_metrics['iou']:.4f} "
             f"F1={val_metrics['f1']:.4f} "
             f"Prec={val_metrics['precision']:.4f} "
-            f"Rec={val_metrics['recall']:.4f}"
+            f"Rec={val_metrics['recall']:.4f} "
+            f"Acc={val_metrics['accuracy']:.4f}"
         )
     
     # Test set evaluation
@@ -513,7 +486,7 @@ def main():
     print(f"  Accuracy: {test_metrics['accuracy']:.4f}")
     
     # Log test metrics to WandB
-    wandb.log({
+    run.log({
         "test_loss": test_loss,
         "test_iou": test_metrics['iou'],
         "test_f1": test_metrics['f1'],
@@ -523,15 +496,15 @@ def main():
     })
     
     # Finish WandB
-    wandb.finish()
+    run.finish()
     
     print("\n" + "="*80)
     print("TRAINING COMPLETE")
     print("="*80)
     print(f"Final Validation Metrics:")
-    print(f"  Loss: {val_losses[-1]:.4f}")
-    print(f"  IoU: {val_ious[-1]:.4f}")
-    print(f"  F1: {val_f1s[-1]:.4f}")
+    print(f"  Loss: {val_loss:.4f}")
+    print(f"  IoU: {val_metrics['iou']:.4f}")
+    print(f"  F1: {val_metrics['f1']:.4f}")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,44 @@ from src.data.transform import (
     RandomRotate90TS
 )
 
+import wandb
+
+def log_example_batch(model, loader, device, step, name_prefix="val"):
+    model.eval()
+    imgs, masks = next(iter(loader))        # imgs shape:
+                                            # UNet EF: (B, T, C, H, W)
+                                            # FCEF:    (B, T, C, H, W)
+    with torch.no_grad():
+        B, T, C, H, W = imgs.shape
+        # For U-Net early fusion, flatten T and C
+        x_unet = imgs.reshape(B, T * C, H, W).to(device)
+        logits = model(x_unet)
+        preds = logits.argmax(dim=1).cpu()  # (B, H, W)
+
+    masks = masks.cpu()
+
+    # Make a simple RGB image from first timestep (bands 0,1,2)
+    rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
+
+    wandb_images = []
+    for i in range(min(4, B)):
+        wandb_images.append(
+            wandb.Image(
+                rgb[i],
+                masks={
+                    "ground_truth": {
+                        "mask_data": masks[i].numpy(),
+                        "class_labels": {0: "background", 1: "land-take"},
+                    },
+                    "prediction": {
+                        "mask_data": preds[i].numpy(),
+                        "class_labels": {0: "background", 1: "land-take"},
+                    },
+                },
+            )
+        )
+
+    wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
 
 # ============================================================================
 # CONFIGURATION
@@ -471,6 +509,9 @@ def main():
             f"Rec={val_metrics['recall']:.4f} "
             f"Acc={val_metrics['accuracy']:.4f}"
         )
+
+        if epoch % 5 == 0:
+            log_example_batch(model, val_loader, device, step=epoch, name_prefix="val")
     
     # Test set evaluation
     print("\n" + "="*80)

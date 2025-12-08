@@ -3,6 +3,7 @@ U-Net Training Script for Land-Take Prediction
 
 Based on 03_smp_unet_baseline.ipynb
 Fair comparison setup with FCEF baseline: shared splits, normalization, patch size, random seeds
+Uses TimeSeriesDataset with early fusion (T*C channels) for temporal prediction
 """
 
 import sys
@@ -14,6 +15,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import segmentation_models_pytorch as smp
+from tqdm import tqdm
 import wandb
 
 print(">>> train_unet.py started")
@@ -28,9 +30,18 @@ root = Path(__file__).resolve().parent
 sys.path.append(str(root))
 
 from src.config import SENTINEL_DIR, MASK_DIR
-from src.data.sentinel_habloss_dataset import SentinelHablossPatchDataset
+from src.data.timeseries_dataset import TimeSeriesDataset
 from src.data.splits import get_splits, get_ref_ids_from_directory
-from src.data.transform import compute_normalization_stats
+from src.data.transform import (
+    compute_normalization_stats,
+    ComposeTS,
+    NormalizeBy,
+    RandomCropTS,
+    CenterCropTS,
+    Normalize,
+    RandomFlipTS,
+    RandomRotate90TS
+)
 
 
 # ============================================================================
@@ -47,18 +58,23 @@ CONFIG = {
     "test_ratio": 0.15,
     
     # Model
+    "architecture": "UNet_EarlyFusion",
     "encoder_name": "resnet34",
     "encoder_weights": "imagenet",
     "num_classes": 2,
+    
+    # Data
+    "sensor": "sentinel",
+    "temporal_mode": "first_half",  # 7 timesteps
+    "patch_size": 64,
+    "patches_per_image_train": 20,
+    "patches_per_image_val": 10,
+    "patches_per_image_test": 10,
     
     # Training
     "epochs": 50,
     "learning_rate": 1e-3,
     "batch_size": 8,
-    "patch_size": 64,
-    "patches_per_image_train": 20,
-    "patches_per_image_val": 10,
-    "patches_per_image_test": 10,
     "augment_train": True,
     
     # Normalization
@@ -66,14 +82,11 @@ CONFIG = {
     "num_samples_for_stats": 2000,
     
     # DataLoader
-    "num_workers": 0,
+    "num_workers": 4,
     
     # WandB
-    "wandb_project": "smp_unet",
+    "wandb_project": "Baseline",
     "wandb_entity": "nina_prosjektoppgave",
-    
-    # Logging
-    "log_examples_every_n_epochs": 2,
 }
 
 
@@ -142,46 +155,57 @@ def compute_metrics_from_confusion(tp, fp, tn, fn, eps=1e-8):
 # TRAINING & VALIDATION
 # ============================================================================
 
-def train_one_epoch(model, loader, loss_fn, optimizer, device):
-    """Train for one epoch"""
+def train_one_epoch(model, loader, loss_fn, optimizer, device, scaler):
+    """Train for one epoch with time series input"""
     model.train()
     total_loss = 0.0
 
-    for imgs, masks in loader:
-        imgs = imgs.to(device)
+    for x, masks in loader:
+        # x shape: (B, T, C, H, W)
+        # Reshape to (B, T*C, H, W) for U-Net early fusion
+        B, T, C, H, W = x.shape
+        x = x.reshape(B, T * C, H, W)
+        
+        x = x.to(device)
         masks = masks.to(device)
 
         optimizer.zero_grad()
         
         with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
-            logits = model(imgs)
+            logits = model(x)
             loss = loss_fn(logits, masks)
 
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
-        total_loss += loss.item() * imgs.size(0)
+        total_loss += loss.item()
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     return avg_loss
 
 
 def validate(model, loader, loss_fn, device):
-    """Validate model"""
+    """Validate model with time series input"""
     model.eval()
     total_loss = 0.0
     sum_tp = sum_fp = sum_tn = sum_fn = 0
 
     with torch.no_grad():
-        for imgs, masks in loader:
-            imgs = imgs.to(device)
+        for x, masks in loader:
+            # x shape: (B, T, C, H, W)
+            # Reshape to (B, T*C, H, W) for U-Net early fusion
+            B, T, C, H, W = x.shape
+            x = x.reshape(B, T * C, H, W)
+            
+            x = x.to(device)
             masks = masks.to(device)
 
             with torch.amp.autocast('cuda' if torch.cuda.is_available() else 'cpu'):
-                logits = model(imgs)
+                logits = model(x)
                 loss = loss_fn(logits, masks)
             
-            total_loss += loss.item() * imgs.size(0)
+            total_loss += loss.item()
 
             pred = torch.argmax(logits, dim=1)
             tp, fp, tn, fn = compute_confusion_binary(pred, masks, positive_class=1)
@@ -190,49 +214,10 @@ def validate(model, loader, loss_fn, device):
             sum_tn += tn
             sum_fn += fn
 
-    avg_loss = total_loss / len(loader.dataset)
+    avg_loss = total_loss / len(loader)
     metrics = compute_metrics_from_confusion(sum_tp, sum_fp, sum_tn, sum_fn)
     
     return avg_loss, metrics
-
-
-def log_examples(model, loader, device, step, phase="val"):
-    """Log example predictions to wandb"""
-    model.eval()
-    with torch.no_grad():
-        imgs, masks = next(iter(loader))
-        imgs = imgs.to(device)
-        preds = model(imgs)
-        
-        preds_class = preds.argmax(dim=1)
-        
-        # Normalize RGB channels for visualization
-        rgb_imgs = imgs[:, :3, :, :].clone()
-        for i in range(3):
-            min_val = rgb_imgs[:, i, :, :].min()
-            max_val = rgb_imgs[:, i, :, :].max()
-            if max_val > min_val:
-                rgb_imgs[:, i, :, :] = (rgb_imgs[:, i, :, :] - min_val) / (max_val - min_val)
-        
-        wandb_images = []
-        for i in range(min(4, imgs.size(0))):
-            wandb_images.append(
-                wandb.Image(
-                    rgb_imgs[i].cpu(),
-                    masks={
-                        "ground_truth": {
-                            "mask_data": masks[i].cpu().numpy(),
-                            "class_labels": {0: "background", 1: "land-take"}
-                        },
-                        "prediction": {
-                            "mask_data": preds_class[i].cpu().numpy(),
-                            "class_labels": {0: "background", 1: "land-take"}
-                        },
-                    },
-                )
-            )
-        
-        wandb.log({f"{phase}_examples": wandb_images}, step=step)
 
 
 # ============================================================================
@@ -270,63 +255,83 @@ def main():
     print("\n" + "="*80)
     print("NORMALIZATION")
     print("="*80)
-    temp_train_ds = SentinelHablossPatchDataset(
-        SENTINEL_DIR, MASK_DIR,
-        patch_size=CONFIG["patch_size"],
-        patches_per_image=5,
-        mean=None,
-        std=None,
-        augment=False,
-        ref_ids=train_ref_ids
+    temp_train_transform = ComposeTS([
+        NormalizeBy(10000.0),
+        CenterCropTS(CONFIG["patch_size"])
+    ])
+    
+    temp_train_ds = TimeSeriesDataset(
+        train_ref_ids,
+        sensor=CONFIG["sensor"],
+        slice_mode=CONFIG["temporal_mode"],
+        transform=temp_train_transform,
+        patches_per_image=5,  # Just a few patches per tile for stats estimation
     )
     
     print("Estimating per-channel mean and std from training data...")
     mean, std = compute_normalization_stats(temp_train_ds, num_samples=CONFIG["num_samples_for_stats"])
     print(f"✓ Computed normalization stats: {len(mean)} channels")
-    print(f"  Mean (first 5): {[f'{m:.4f}' for m in mean[:5]]}")
+    print(f"  Mean (first 5): {[f'{m:.4f}' for m in mean[:5]]}") 
     print(f"  Std (first 5): {[f'{s:.4f}' for s in std[:5]]}")
     
     # Create datasets
     print("\n" + "="*80)
     print("DATASETS")
     print("="*80)
-    train_ds = SentinelHablossPatchDataset(
-        SENTINEL_DIR, MASK_DIR,
-        patch_size=CONFIG["patch_size"],
+    
+    # Training transform with random crop and augmentation
+    train_transform_ops = [
+        NormalizeBy(10000.0),
+        Normalize(mean, std),
+        RandomCropTS(CONFIG["patch_size"]),
+    ]
+    if CONFIG["augment_train"]:
+        train_transform_ops.extend([
+            RandomFlipTS(p_horizontal=0.5, p_vertical=0.5),
+            RandomRotate90TS(p=0.5),
+        ])
+    train_transform = ComposeTS(train_transform_ops)
+    
+    # Val/test transforms use CenterCropTS for deterministic, stable metrics
+    val_transform = ComposeTS([
+        NormalizeBy(10000.0),
+        Normalize(mean, std),
+        CenterCropTS(CONFIG["patch_size"]),
+    ])
+    
+    test_transform = ComposeTS([
+        NormalizeBy(10000.0),
+        Normalize(mean, std),
+        CenterCropTS(CONFIG["patch_size"]),
+    ])
+    
+    train_ds = TimeSeriesDataset(
+        train_ref_ids,
+        sensor=CONFIG["sensor"],
+        slice_mode=CONFIG["temporal_mode"],
+        transform=train_transform,
         patches_per_image=CONFIG["patches_per_image_train"],
-        mean=mean,
-        std=std,
-        augment=CONFIG["augment_train"],
-        ref_ids=train_ref_ids
     )
-    
-    val_ds = SentinelHablossPatchDataset(
-        SENTINEL_DIR, MASK_DIR,
-        patch_size=CONFIG["patch_size"],
+    val_ds = TimeSeriesDataset(
+        val_ref_ids,
+        sensor=CONFIG["sensor"],
+        slice_mode=CONFIG["temporal_mode"],
+        transform=val_transform,
         patches_per_image=CONFIG["patches_per_image_val"],
-        mean=mean,
-        std=std,
-        augment=False,
-        use_center_crop=True,
-        ref_ids=val_ref_ids
     )
-    
-    test_ds = SentinelHablossPatchDataset(
-        SENTINEL_DIR, MASK_DIR,
-        patch_size=CONFIG["patch_size"],
+    test_ds = TimeSeriesDataset(
+        test_ref_ids,
+        sensor=CONFIG["sensor"],
+        slice_mode=CONFIG["temporal_mode"],
+        transform=test_transform,
         patches_per_image=CONFIG["patches_per_image_test"],
-        mean=mean,
-        std=std,
-        augment=False,
-        use_center_crop=True,
-        ref_ids=test_ref_ids
     )
     
     print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Training patches: {len(train_ds)} (from {len(train_ref_ids)} tiles) - random crops + augmentation")
-    print(f"Validation patches: {len(val_ds)} (from {len(val_ref_ids)} tiles) - deterministic center crops")
-    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles) - deterministic center crops")
-    print(f"Number of input channels: {train_ds.num_bands}")
+    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile) - random crops + augmentation")
+    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile) - deterministic center crops")
+    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile) - deterministic center crops")
+    print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders
     def worker_init_fn(worker_id):
@@ -359,7 +364,13 @@ def main():
     print("\n" + "="*80)
     print("MODEL")
     print("="*80)
-    num_input_channels = train_ds.num_bands
+    
+    # Get sample batch to determine input shape
+    sample_x, _ = next(iter(train_loader))
+    _, T, C, H, W = sample_x.shape
+    
+    # Early fusion: T * C channels
+    num_input_channels = T * C
     
     model = smp.Unet(
         encoder_name=CONFIG["encoder_name"],
@@ -368,85 +379,86 @@ def main():
         classes=CONFIG["num_classes"]
     ).to(device)
     
-    print(f"✓ U-Net model created with {num_input_channels} input channels")
+    print(f"✓ U-Net model created with early fusion")
+    print(f"  Timesteps: {T}")
+    print(f"  Channels per timestep: {C}")
+    print(f"  Total input channels (T*C): {num_input_channels}")
     print(f"  Encoder: {CONFIG['encoder_name']}")
     print(f"  Encoder weights: {CONFIG['encoder_weights']}")
     print(f"  Classes: {CONFIG['num_classes']}")
     
-    # Loss and optimizer
+    # Loss, optimizer, and scaler
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG["learning_rate"])
+    scaler = torch.amp.GradScaler("cuda")
     
     # Initialize WandB
     print("\n" + "="*80)
     print("WANDB INITIALIZATION")
     print("="*80)
-    wandb.init(
+    run = wandb.init(
         project=CONFIG["wandb_project"],
         entity=CONFIG["wandb_entity"],
-	    name=f"UNet_patch{CONFIG['patch_size']}",
+        name=f"UNet_EarlyFusion_{CONFIG['sensor']}_patch{CONFIG['patch_size']}_t{T}",
         config={
-            "model": "Unet",
+            "model": "Unet_EarlyFusion",
+            "architecture": CONFIG["architecture"],
             "encoder": CONFIG["encoder_name"],
             "encoder_weights": CONFIG["encoder_weights"],
             "in_channels": num_input_channels,
+            "timesteps": T,
+            "channels_per_timestep": C,
             "classes": CONFIG["num_classes"],
             "learning_rate": CONFIG["learning_rate"],
             "batch_size": CONFIG["batch_size"],
             "patch_size": CONFIG["patch_size"],
             "epochs": CONFIG["epochs"],
-            "train_patches_per_image": CONFIG["patches_per_image_train"],
-            "val_patches_per_image": CONFIG["patches_per_image_val"],
-            "test_patches_per_image": CONFIG["patches_per_image_test"],
-            "train_ref_ids": len(train_ref_ids),
-            "val_ref_ids": len(val_ref_ids),
-            "test_ref_ids": len(test_ref_ids),
-            "augmentation": CONFIG["augment_train"],
+            "patches_per_image_train": CONFIG["patches_per_image_train"],
+            "patches_per_image_val": CONFIG["patches_per_image_val"],
+            "patches_per_image_test": CONFIG["patches_per_image_test"],
+            "augment_train": CONFIG["augment_train"],
+            "temporal_mode": CONFIG["temporal_mode"],
+            "sensor": CONFIG["sensor"],
+            "train_tiles": len(train_ref_ids),
+            "val_tiles": len(val_ref_ids),
+            "test_tiles": len(test_ref_ids),
+            "train_patches": len(train_ds),
+            "val_patches": len(val_ds),
+            "test_patches": len(test_ds),
             "normalization": CONFIG["normalization"],
             "random_seed": CONFIG["random_seed"],
             "train_ratio": CONFIG["train_ratio"],
             "val_ratio": CONFIG["val_ratio"],
             "test_ratio": CONFIG["test_ratio"],
-            "fair_comparison": "shared_splits_normalization_patch_size_with_FCEF",
+            "fair_comparison": "identical_pipeline_with_FCEF_early_fusion",
         },
     )
     
-    wandb.watch(model, log="all", log_freq=100)
     print("✓ WandB initialized")
     
     # Training loop
     print("\n" + "="*80)
     print("TRAINING")
     print("="*80)
-    train_losses = []
-    val_losses = []
-    val_ious = []
-    val_f1s = []
     
     for epoch in range(CONFIG["epochs"]):
-        train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
-        train_losses.append(train_loss)
+        # Training
+        train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, device, scaler)
         
+        # Validation
         val_loss, val_metrics = validate(model, val_loader, loss_fn, device)
-        val_losses.append(val_loss)
-        val_ious.append(val_metrics['iou'])
-        val_f1s.append(val_metrics['f1'])
         
         # Log to WandB
-        wandb.log({
+        run.log({
             "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "val_iou": val_metrics['iou'],
-            "val_f1": val_metrics['f1'],
-            "val_precision": val_metrics['precision'],
-            "val_recall": val_metrics['recall'],
-            "val_accuracy": val_metrics['accuracy'],
+            "avg_train_loss": train_loss,
+            "avg_val_loss": val_loss,
+            "IoU": val_metrics['iou'],
+            "F1": val_metrics['f1'],
+            "Precision": val_metrics['precision'],
+            "Recall": val_metrics['recall'],
+            "Accuracy": val_metrics['accuracy']
         })
-        
-        # Log example predictions
-        if (epoch + 1) % CONFIG["log_examples_every_n_epochs"] == 0:
-            log_examples(model, val_loader, device, step=epoch + 1, phase="val")
         
         # Print epoch summary
         print(
@@ -456,7 +468,8 @@ def main():
             f"IoU={val_metrics['iou']:.4f} "
             f"F1={val_metrics['f1']:.4f} "
             f"Prec={val_metrics['precision']:.4f} "
-            f"Rec={val_metrics['recall']:.4f}"
+            f"Rec={val_metrics['recall']:.4f} "
+            f"Acc={val_metrics['accuracy']:.4f}"
         )
     
     # Test set evaluation
@@ -474,7 +487,7 @@ def main():
     print(f"  Accuracy: {test_metrics['accuracy']:.4f}")
     
     # Log test metrics to WandB
-    wandb.log({
+    run.log({
         "test_loss": test_loss,
         "test_iou": test_metrics['iou'],
         "test_f1": test_metrics['f1'],
@@ -484,15 +497,15 @@ def main():
     })
     
     # Finish WandB
-    wandb.finish()
+    run.finish()
     
     print("\n" + "="*80)
     print("TRAINING COMPLETE")
     print("="*80)
     print(f"Final Validation Metrics:")
-    print(f"  Loss: {val_losses[-1]:.4f}")
-    print(f"  IoU: {val_ious[-1]:.4f}")
-    print(f"  F1: {val_f1s[-1]:.4f}")
+    print(f"  Loss: {val_loss:.4f}")
+    print(f"  IoU: {val_metrics['iou']:.4f}")
+    print(f"  F1: {val_metrics['f1']:.4f}")
 
 
 if __name__ == "__main__":

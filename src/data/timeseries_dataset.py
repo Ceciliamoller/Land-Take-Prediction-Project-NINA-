@@ -36,7 +36,7 @@ class TimeSeriesDataset(Dataset):
     Loads time series data and reshapes it into (T, C, H, W)
     so it can be fed directly to temporal models (like the FCEF baseline).
 
-    Now supports multiple patches per tile per epoch for fair comparison with U-Net.
+    Supports multiple patches per tile per epoch for fair comparison with U-Net.
 
     Assumptions:
       - `ids` are REFIDs that match the *prefix* of the filenames in

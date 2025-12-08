@@ -555,7 +555,7 @@ def main():
     
     # Always log example predictions from test set at the end
     print("\nLogging final test set predictions...")
-    log_example_batch(model, test_loader, device, step="final", name_prefix="test")
+    log_example_batch(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
     
     # Finish WandB
     run.finish()

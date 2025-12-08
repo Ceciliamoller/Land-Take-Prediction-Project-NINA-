@@ -75,6 +75,10 @@ def log_example_batch(model, loader, device, step, name_prefix="val"):
 
         # Make a simple RGB image from first timestep (bands 0,1,2)
         rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
+        # Re-stretch RGB to [0, 1] for better visualization
+        rgb_min = rgb.amin(dim=(-2, -1), keepdim=True)
+        rgb_max = rgb.amax(dim=(-2, -1), keepdim=True)
+        rgb = (rgb - rgb_min) / (rgb_max - rgb_min + 1e-6)
 
         wandb_images = []
         for i in range(min(4, B)):

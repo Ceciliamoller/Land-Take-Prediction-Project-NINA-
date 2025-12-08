@@ -105,10 +105,6 @@ class TimeSeriesDataset(Dataset):
                 raise ValueError(
                     f"Expected 126 bands for Sentinel, got {num_bands} for {fid} at {img_path}"
                 )
-            if H != 64 or W != 64:
-                raise ValueError(
-                    f"Expected 64×64 chips, got {H}×{W} for {fid} at {img_path}"
-                )
             img = img.reshape(7, 2, 9, H, W)
             img = img.reshape(14, 9, H, W)
 
@@ -118,10 +114,6 @@ class TimeSeriesDataset(Dataset):
             if num_bands != 6:
                 raise ValueError(
                     f"Expected 6 bands for VHR, got {num_bands} for {fid} at {img_path}"
-                )
-            if H != 64 or W != 64:
-                raise ValueError(
-                    f"Expected 64×64 chips, got {H}×{W} for {fid} at {img_path}"
                 )
             img = img.reshape(2, 3, H, W)
 
@@ -133,14 +125,28 @@ class TimeSeriesDataset(Dataset):
         # 4) to torch tensors
         img = torch.from_numpy(img).float()     # (T, C, H, W)
         mask = torch.from_numpy(mask).long()    # (H, W)
-        
-        # Verify mask dimensions match chip size
-        if mask.shape[0] != 64 or mask.shape[1] != 64:
-            raise ValueError(
-                f"Expected 64×64 mask, got {mask.shape} for {fid} at {mask_path}"
-            )
-        
         mask = (mask > 0).long()
+        
+        # 5) Handle variable image sizes by center-cropping to 64×64
+        # This maintains the original cropping logic that was in SentinelHablossPatchDataset
+        T, C, H, W = img.shape
+        patch_size = 64
+        
+        # Pad if smaller than patch_size
+        if H < patch_size or W < patch_size:
+            import torch.nn.functional as F
+            pad_h = max(0, patch_size - H)
+            pad_w = max(0, patch_size - W)
+            img = F.pad(img, (0, pad_w, 0, pad_h), mode="constant", value=0)
+            mask = F.pad(mask, (0, pad_w, 0, pad_h), mode="constant", value=0)
+            T, C, H, W = img.shape
+        
+        # Center crop to patch_size (deterministic for all splits)
+        if H > patch_size or W > patch_size:
+            y = (H - patch_size) // 2
+            x = (W - patch_size) // 2
+            img = img[:, :, y:y+patch_size, x:x+patch_size]
+            mask = mask[y:y+patch_size, x:x+patch_size]
 
         if self.transform is not None:
             img, mask = self.transform(img, mask)

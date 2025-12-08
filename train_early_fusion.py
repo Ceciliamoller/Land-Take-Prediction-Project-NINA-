@@ -113,7 +113,7 @@ CONFIG = {
     "num_workers": 4,
     
     # WandB
-    "wandb_project": "FCEarlyFusion",
+    "wandb_project": "Baseline",
     "wandb_entity": "nina_prosjektoppgave",
 }
 

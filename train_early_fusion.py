@@ -299,15 +299,15 @@ def main():
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable validation on small datasets
         shuffle=False,
-        num_workers=CONFIG["num_workers"]
+        num_workers=CONFIG["num_workers"],
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable test evaluation
         shuffle=False,
-        num_workers=CONFIG["num_workers"]
+        num_workers=CONFIG["num_workers"],
     )
     
     print(f"✓ Dataloaders created with reproducible shuffling (seed={CONFIG['random_seed']})")
@@ -485,6 +485,10 @@ def main():
         "test_recall": test_metrics['recall'],
         "test_accuracy": test_metrics['accuracy'],
     })
+    
+    # Always log example predictions from test set at the end
+    print("\nLogging final test set predictions...")
+    log_example_batch(model, test_loader, device, step="final", name_prefix="test")
     
     # Finish WandB
     run.finish()

@@ -46,41 +46,71 @@ from src.data.transform import (
 import wandb
 
 def log_example_batch(model, loader, device, step, name_prefix="val"):
-    model.eval()
-    imgs, masks = next(iter(loader))        # imgs shape:
-                                            # UNet EF: (B, T, C, H, W)
-                                            # FCEF:    (B, T, C, H, W)
-    with torch.no_grad():
-        B, T, C, H, W = imgs.shape
-        # For U-Net early fusion, flatten T and C
-        x_unet = imgs.reshape(B, T * C, H, W).to(device)
-        logits = model(x_unet)
-        preds = logits.argmax(dim=1).cpu()  # (B, H, W)
+    """
+    Log a batch of example predictions to WandB.
+    Input for U-Net is (B, T, C, H, W) which gets reshaped to (B, T*C, H, W).
+    Gracefully handles errors and empty batches.
+    """
+    try:
+        model.eval()
+        # Try to get a batch from the loader
+        try:
+            imgs, masks = next(iter(loader))
+        except (StopIteration, RuntimeError) as e:
+            print(f"[WARN] log_example_batch ({name_prefix}) skipped: no data in loader - {e}")
+            return
+        
+        if imgs.shape[0] == 0:
+            print(f"[WARN] log_example_batch ({name_prefix}) skipped: empty batch")
+            return
+        
+        with torch.no_grad():
+            B, T, C, H, W = imgs.shape
+            # For U-Net early fusion, flatten T and C
+            x_unet = imgs.reshape(B, T * C, H, W).to(device)
+            logits = model(x_unet)
+            preds = logits.argmax(dim=1).cpu()  # (B, H, W)
 
-    masks = masks.cpu()
+        masks = masks.cpu()
 
-    # Make a simple RGB image from first timestep (bands 0,1,2)
-    rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
+        # Make a simple RGB image from first timestep (bands 0,1,2)
+        rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
 
-    wandb_images = []
-    for i in range(min(4, B)):
-        wandb_images.append(
-            wandb.Image(
-                rgb[i],
-                masks={
-                    "ground_truth": {
-                        "mask_data": masks[i].numpy(),
-                        "class_labels": {0: "background", 1: "land-take"},
+        wandb_images = []
+        for i in range(min(4, B)):
+            # Validate tensor shapes before creating wandb.Image
+            if rgb[i].shape[0] != 3 or len(rgb[i].shape) != 3:
+                print(f"[WARN] Skipping sample {i}: invalid RGB shape {rgb[i].shape}")
+                continue
+            if len(masks[i].shape) != 2 or len(preds[i].shape) != 2:
+                print(f"[WARN] Skipping sample {i}: invalid mask shapes")
+                continue
+            
+            wandb_images.append(
+                wandb.Image(
+                    rgb[i],
+                    masks={
+                        "ground_truth": {
+                            "mask_data": masks[i].numpy(),
+                            "class_labels": {0: "background", 1: "land-take"},
+                        },
+                        "prediction": {
+                            "mask_data": preds[i].numpy(),
+                            "class_labels": {0: "background", 1: "land-take"},
+                        },
                     },
-                    "prediction": {
-                        "mask_data": preds[i].numpy(),
-                        "class_labels": {0: "background", 1: "land-take"},
-                    },
-                },
+                )
             )
-        )
-
-    wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
+        
+        if len(wandb_images) > 0:
+            wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
+        else:
+            print(f"[WARN] log_example_batch ({name_prefix}): no valid samples to log")
+    
+    except Exception as e:
+        print(f"[ERROR] log_example_batch ({name_prefix}) failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 # ============================================================================
 # CONFIGURATION
@@ -378,13 +408,13 @@ def main():
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable validation on small datasets
         shuffle=False,
         num_workers=CONFIG["num_workers"]
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable test evaluation
         shuffle=False,
         num_workers=CONFIG["num_workers"]
     )
@@ -522,6 +552,10 @@ def main():
         "test_recall": test_metrics['recall'],
         "test_accuracy": test_metrics['accuracy'],
     })
+    
+    # Always log example predictions from test set at the end
+    print("\nLogging final test set predictions...")
+    log_example_batch(model, test_loader, device, step="final", name_prefix="test")
     
     # Finish WandB
     run.finish()

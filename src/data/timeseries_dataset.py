@@ -100,13 +100,29 @@ class TimeSeriesDataset(Dataset):
         # 2) reshape to (T, C, H, W) depending on sensor
         if self.sensor == "sentinel":
             # Expected layout: 126 = 7 years * 2 quarters * 9 bands
-            H, W = img.shape[1], img.shape[2]
+            num_bands, H, W = img.shape
+            if num_bands != 126:
+                raise ValueError(
+                    f"Expected 126 bands for Sentinel, got {num_bands} for {fid} at {img_path}"
+                )
+            if H != 64 or W != 64:
+                raise ValueError(
+                    f"Expected 64×64 chips, got {H}×{W} for {fid} at {img_path}"
+                )
             img = img.reshape(7, 2, 9, H, W)
             img = img.reshape(14, 9, H, W)
 
         elif self.sensor == "vhr":
             # Expected layout: 6 = 2 times * 3 bands
-            H, W = img.shape[1], img.shape[2]
+            num_bands, H, W = img.shape
+            if num_bands != 6:
+                raise ValueError(
+                    f"Expected 6 bands for VHR, got {num_bands} for {fid} at {img_path}"
+                )
+            if H != 64 or W != 64:
+                raise ValueError(
+                    f"Expected 64×64 chips, got {H}×{W} for {fid} at {img_path}"
+                )
             img = img.reshape(2, 3, H, W)
 
         # 3) optionally take first half of the time series
@@ -117,6 +133,13 @@ class TimeSeriesDataset(Dataset):
         # 4) to torch tensors
         img = torch.from_numpy(img).float()     # (T, C, H, W)
         mask = torch.from_numpy(mask).long()    # (H, W)
+        
+        # Verify mask dimensions match chip size
+        if mask.shape[0] != 64 or mask.shape[1] != 64:
+            raise ValueError(
+                f"Expected 64×64 mask, got {mask.shape} for {fid} at {mask_path}"
+            )
+        
         mask = (mask > 0).long()
 
         if self.transform is not None:

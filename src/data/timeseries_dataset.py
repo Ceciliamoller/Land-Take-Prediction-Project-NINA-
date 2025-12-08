@@ -37,7 +37,7 @@ class TimeSeriesDataset(Dataset):
     Loads time series data and reshapes it into (T, C, H, W)
     so it can be fed directly to temporal models (like the FCEF baseline).
 
-    Works with pre-cropped 64×64 chips - each chip is a single sample.
+    Works with pre-cropped 64×64 chips. Each chip is a single sample.
 
     Assumptions:
       - `ids` are REFIDs that match the *prefix* of the filenames in

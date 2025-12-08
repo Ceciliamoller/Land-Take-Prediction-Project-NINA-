@@ -37,11 +37,12 @@ class TimeSeriesDataset(Dataset):
     Loads time series data and reshapes it into (T, C, H, W)
     so it can be fed directly to temporal models (like the FCEF baseline).
 
-    Supports multiple patches per tile per epoch for fair comparison with U-Net.
+    Works with pre-cropped 64×64 chips - each chip is a single sample.
 
     Assumptions:
       - `ids` are REFIDs that match the *prefix* of the filenames in
         SENTINEL_DIR / VHR_DIR / MASK_DIR.
+      - All chips are already cropped to 64×64 pixels on disk.
     """
 
     def __init__(
@@ -50,19 +51,17 @@ class TimeSeriesDataset(Dataset):
         transform,
         sensor: str = "sentinel",
         slice_mode: str = None,
-        patches_per_image: int = 20,
     ):
         """
         ids: list of REFIDs (filename stems without the long suffix)
         sensor: "sentinel" or "vhr"
         slice_mode: None or "first_half"
-        patches_per_image: Number of patches to sample per tile per epoch (default 20)
+        transform: Transform to apply (flips, rotations, normalization)
         """
         self.ids = ids
         self.sensor = sensor.lower()
         self.slice_mode = slice_mode
         self.transform = transform
-        self.patches_per_image = patches_per_image
 
         # Pre-resolve image and mask paths once for stability and speed
         self.img_paths: dict[str, Path] = {}
@@ -82,13 +81,12 @@ class TimeSeriesDataset(Dataset):
             self.mask_paths[fid] = mask_path
 
     def __len__(self):
-        # Total patches per epoch = num_tiles * patches_per_image
-        return len(self.ids) * self.patches_per_image
+        # One sample per chip
+        return len(self.ids)
 
     def __getitem__(self, idx):
-        # Map global idx to tile idx (multiple patches per tile)
-        tile_idx = idx // self.patches_per_image
-        fid = self.ids[tile_idx]
+        # Direct mapping: each idx corresponds to one 64×64 chip
+        fid = self.ids[idx]
 
         img_path = self.img_paths[fid]
         mask_path = self.mask_paths[fid]

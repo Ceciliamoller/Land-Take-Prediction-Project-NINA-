@@ -100,10 +100,7 @@ CONFIG = {
     # Data
     "sensor": "sentinel",
     "temporal_mode": "first_half",  # 7 timesteps
-    "patch_size": 64,
-    "patches_per_image_train": 20,
-    "patches_per_image_val": 10,
-    "patches_per_image_test": 10,
+    "chip_size": 64,  # Pre-cropped chips are 64×64
     
     # Training
     "epochs": 50,
@@ -292,7 +289,6 @@ def main():
     print("="*80)
     temp_train_transform = ComposeTS([
         NormalizeBy(10000.0),
-        CenterCropTS(CONFIG["patch_size"])
     ])
     
     temp_train_ds = TimeSeriesDataset(
@@ -300,7 +296,6 @@ def main():
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
         transform=temp_train_transform,
-        patches_per_image=5,  # Just a few patches per tile for stats estimation
     )
     
     print("Estimating per-channel mean and std from training data...")
@@ -314,30 +309,29 @@ def main():
     print("DATASETS")
     print("="*80)
     
-    # Training transform with random crop and augmentation
-    train_transform_ops = [
-        NormalizeBy(10000.0),
-        Normalize(mean, std),
-        RandomCropTS(CONFIG["patch_size"]),
-    ]
+    # Training transform with spatial augmentation (flips + rotations)
     if CONFIG["augment_train"]:
-        train_transform_ops.extend([
+        train_transform = ComposeTS([
             RandomFlipTS(p_horizontal=0.5, p_vertical=0.5),
-            RandomRotate90TS(p=0.5),
+            RandomRotate90TS(),
+            NormalizeBy(10000.0),
+            Normalize(mean, std),
         ])
-    train_transform = ComposeTS(train_transform_ops)
+    else:
+        train_transform = ComposeTS([
+            NormalizeBy(10000.0),
+            Normalize(mean, std),
+        ])
     
-    # Val/test transforms use CenterCropTS for deterministic, stable metrics
+    # Val/test transforms: no augmentation, only normalization
     val_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
-        CenterCropTS(CONFIG["patch_size"]),
     ])
     
     test_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
-        CenterCropTS(CONFIG["patch_size"]),
     ])
     
     train_ds = TimeSeriesDataset(
@@ -345,27 +339,24 @@ def main():
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
         transform=train_transform,
-        patches_per_image=CONFIG["patches_per_image_train"],
     )
     val_ds = TimeSeriesDataset(
         val_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
         transform=val_transform,
-        patches_per_image=CONFIG["patches_per_image_val"],
     )
     test_ds = TimeSeriesDataset(
         test_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
         transform=test_transform,
-        patches_per_image=CONFIG["patches_per_image_test"],
     )
     
-    print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Train patches: {len(train_ds)} (from {len(train_ref_ids)} tiles, {CONFIG['patches_per_image_train']} patches/tile) - random crops + augmentation")
-    print(f"Val patches: {len(val_ds)} (from {len(val_ref_ids)} tiles, {CONFIG['patches_per_image_val']} patches/tile) - deterministic center crops")
-    print(f"Test patches: {len(test_ds)} (from {len(test_ref_ids)} tiles, {CONFIG['patches_per_image_test']} patches/tile) - deterministic center crops")
+    print(f"✓ Datasets created for pre-cropped {CONFIG['chip_size']}×{CONFIG['chip_size']} chips")
+    print(f"Train chips: {len(train_ds)} (from {len(train_ref_ids)} REFIDs) - with flips + rotations")
+    print(f"Val chips: {len(val_ds)} (from {len(val_ref_ids)} REFIDs) - no augmentation")
+    print(f"Test chips: {len(test_ds)} (from {len(test_ref_ids)} REFIDs) - no augmentation")
     print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders
@@ -437,7 +428,7 @@ def main():
     run = wandb.init(
         project=CONFIG["wandb_project"],
         entity=CONFIG["wandb_entity"],
-        name=f"UNet3D_{CONFIG['sensor']}_patch{CONFIG['patch_size']}_t{T}",
+        name=f"UNet3D_{CONFIG['sensor']}_chip{CONFIG['chip_size']}_t{T}",
         config={
             "model": "UNet3D",
             "architecture": CONFIG["architecture"],
@@ -447,26 +438,21 @@ def main():
             "out_channels": CONFIG["num_classes"],
             "learning_rate": CONFIG["learning_rate"],
             "batch_size": CONFIG["batch_size"],
-            "patch_size": CONFIG["patch_size"],
+            "chip_size": CONFIG["chip_size"],
             "epochs": CONFIG["epochs"],
-            "patches_per_image_train": CONFIG["patches_per_image_train"],
-            "patches_per_image_val": CONFIG["patches_per_image_val"],
-            "patches_per_image_test": CONFIG["patches_per_image_test"],
             "augment_train": CONFIG["augment_train"],
+            "augmentation": "flips_rotations" if CONFIG["augment_train"] else "none",
             "temporal_mode": CONFIG["temporal_mode"],
             "sensor": CONFIG["sensor"],
-            "train_tiles": len(train_ref_ids),
-            "val_tiles": len(val_ref_ids),
-            "test_tiles": len(test_ref_ids),
-            "train_patches": len(train_ds),
-            "val_patches": len(val_ds),
-            "test_patches": len(test_ds),
+            "train_chips": len(train_ds),
+            "val_chips": len(val_ds),
+            "test_chips": len(test_ds),
             "normalization": CONFIG["normalization"],
             "random_seed": CONFIG["random_seed"],
             "train_ratio": CONFIG["train_ratio"],
             "val_ratio": CONFIG["val_ratio"],
             "test_ratio": CONFIG["test_ratio"],
-            "fair_comparison": "identical_pipeline_with_FCEF_3D_convolutions",
+            "preprocessing": "64x64_chips_no_patching",
         },
     )
     

@@ -160,8 +160,9 @@ class ComposeTS:
 
 
 class RandomFlipTS:
-    """Random horizontal and vertical flips for time series data.
+    """Random horizontal and vertical flips for time series data (T, C, H, W).
     Applies the same flip to all timesteps and the mask.
+    Works with 64×64 pre-cropped chips.
     """
     def __init__(self, p_horizontal=0.5, p_vertical=0.5):
         self.p_horizontal = p_horizontal
@@ -170,30 +171,30 @@ class RandomFlipTS:
     def __call__(self, x, mask):
         # x: (T, C, H, W), mask: (H, W)
         if random.random() < self.p_horizontal:
-            x = torch.flip(x, dims=[3])  # flip width
-            mask = torch.flip(mask, dims=[1])
+            x = x.flip(-1)  # flip width (last dimension)
+            mask = mask.flip(-1)
         
         if random.random() < self.p_vertical:
-            x = torch.flip(x, dims=[2])  # flip height
-            mask = torch.flip(mask, dims=[0])
+            x = x.flip(-2)  # flip height (second to last dimension)
+            mask = mask.flip(-2)
         
         return x, mask
 
 
 class RandomRotate90TS:
-    """Random 90-degree rotations for time series data.
+    """Random 90-degree rotations for time series data (T, C, H, W).
     Applies the same rotation to all timesteps and the mask.
+    Works with 64×64 pre-cropped chips on both CPU and GPU.
     """
-    def __init__(self, p=0.5):
-        self.p = p
+    def __init__(self):
+        pass
     
     def __call__(self, x, mask):
         # x: (T, C, H, W), mask: (H, W)
-        if random.random() < self.p:
-            # Random number of 90-degree rotations (0, 1, 2, or 3)
-            k = random.randint(0, 3)
-            if k > 0:
-                x = torch.rot90(x, k=k, dims=[2, 3])
-                mask = torch.rot90(mask, k=k, dims=[0, 1])
+        # Sample k in {0, 1, 2, 3} for k * 90° rotation
+        k = random.randint(0, 3)
+        if k > 0:
+            x = torch.rot90(x, k=k, dims=(-2, -1))
+            mask = torch.rot90(mask, k=k, dims=(-2, -1))
         
         return x, mask

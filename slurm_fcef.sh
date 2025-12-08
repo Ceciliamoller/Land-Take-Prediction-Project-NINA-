@@ -32,6 +32,12 @@ cd "$WORKDIR"
 # Activate project venv
 source .venv/bin/activate
 
+# Install/update packages to ensure compatibility
+echo "Installing/updating packages..."
+pip install --upgrade torch==2.1.0 torchvision==0.16.0 --quiet
+echo "Package installation complete"
+echo ""
+
 echo "Running from directory: $WORKDIR"
 echo ""
 

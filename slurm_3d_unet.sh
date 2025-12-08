@@ -35,12 +35,14 @@ cd "$WORKDIR"
 # Activate project venv
 source .venv/bin/activate
 
-echo "Running from directory: $WORKDIR"
+# Install/update packages to ensure compatibility
+echo "Installing/updating packages..."
+pip install --upgrade torch==2.1.0 torchvision==0.16.0 --quiet
+python -c "import monai" 2>/dev/null || pip install monai --quiet
+echo "Package installation complete"
 echo ""
 
-# Install monai if not already installed
-echo "Checking for MONAI installation..."
-python -c "import monai" 2>/dev/null || pip install monai
+echo "Running from directory: $WORKDIR"
 echo ""
 
 echo "GPU status:"

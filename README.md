@@ -1,44 +1,48 @@
-# Land-Take-Prediction-Project-NINA-
+# Land-Take Prediction Using Temporal Satellite Imagery
 
-## Project Overview
-Predicting land-take (urban expansion, deforestation, etc.) from Sentinel-2 satellite imagery using deep learning. Uses time series data and binary land-take masks from the HABLOSS dataset.
+## What This Project Does
 
-## Baseline Models
+The goal of this project is to predict land-take (urban expansion, deforestation, infrastructure development) from Sentinel-2 satellite time series. The models learn to segment binary land-take masks from the HABLOSS dataset, identifying where land conversion has occurred over time.
+
+## Models
+
+We compare two baseline architectures for temporal land-take prediction:
 
 ### U-Net Early Fusion (`train_unet.py`)
-- **Architecture**: U-Net with ResNet34 encoder (segmentation_models_pytorch)
-- **Input**: Time series of first 7 Sentinel-2 timesteps (7 × 9 bands = 63 channels via early fusion)
-- **Chip size**: 64×64 (center-cropped from variable-sized inputs)
-- **Training**: 50 epochs, CrossEntropyLoss, Adam optimizer
-- **Batch size**: 8
-- **Augmentation**: Random horizontal/vertical flips + random 90° rotations
-- **Normalization**: Scale by 10000 + per-channel standardization
+- Architecture: U-Net with ResNet34 encoder (from segmentation_models_pytorch)
+- Input: 64×64 chips, 63 channels (7 timesteps concatenated)
+- Training: 50 epochs, batch size 8, Adam optimizer, CrossEntropyLoss
+- Data augmentation: Random flips and 90° rotations
 
 ### FCEF Temporal Model (`train_early_fusion.py`)
-- **Architecture**: Fully Convolutional Early Fusion (FCEF) with temporal convolutions
-- **Input**: Time series of first 7 Sentinel-2 timesteps (T=7, C=9 bands)
-- **Chip size**: 64×64 (center-cropped from variable-sized inputs)
-- **Training**: 50 epochs, CrossEntropyLoss, Adam optimizer
-- **Batch size**: 4
-- **Augmentation**: Random horizontal/vertical flips + random 90° rotations
-- **Normalization**: Scale by 10000 + per-channel standardization
+- Architecture: Fully Convolutional Early Fusion (FCEF)
+- Input: 64×64 chips, T=7 timesteps, C=9 bands per timestep
+- Training: 50 epochs, batch size 4, Adam optimizer, CrossEntropyLoss
+- Data augmentation: Random flips and 90° rotations
 
-**Fair Comparison**: Both models use identical data splits (70/15/15), normalization, augmentation strategies, and random seeds (42) for reproducible comparison. Both use the first 7 timesteps from the Sentinel-2 time series.
+### Fair Comparison Setup
+Both models use the same data pipeline for reproducibility:
+- Same 70/15/15 train/val/test splits (random seed = 42)
+- Same normalization: scale by 10000, then standardize per channel
+- Same augmentation strategy
+- Same 7-timestep temporal window
 
-## Training Scripts
+This ensures we're comparing architectures, not implementation details.
 
-Production training scripts for running on IDUN cluster with WandB logging:
-- `train_unet.py`: U-Net early fusion training with automatic package installation
-- `train_early_fusion.py`: FCEF temporal model training with automatic package installation
-- `slurm_unet.sh`: SLURM job script for U-Net (4 hours, 1 GPU, 32GB RAM)
-- `slurm_fcef.sh`: SLURM job script for FCEF (4 hours, 1 GPU, 32GB RAM)
-- `IDUN_GUIDE.md`: Complete guide for running on IDUN
+## Dependencies
 
-Both scripts include:
-- Automatic installation of compatible PyTorch versions (2.1.0, torchvision 0.16.0)
-- Robust validation logging with error handling
-- Guaranteed test set visualization logging to WandB
-- Center-cropping logic to handle variable-sized input chips
+Main packages (see `requirements.txt` for complete list):
+- PyTorch 2.1.0 + torchvision 0.16.0 (works with IDUN P100 GPUs)
+- segmentation-models-pytorch (U-Net)
+- wandb (experiment tracking)
+- rasterio (reads GeoTIFF files)
+- opencv-python (upscales masks for visualization)
+
+The SLURM scripts auto-install PyTorch and segmentation-models-pytorch to avoid version conflicts on IDUN.
+
+## Running the Code
+
+### Quick Start
 
 Run locally:
 ```bash
@@ -46,47 +50,96 @@ python train_unet.py
 python train_early_fusion.py
 ```
 
-Submit to IDUN:
+Submit to IDUN cluster:
 ```bash
 sbatch slurm_unet.sh
 sbatch slurm_fcef.sh
 ```
+(need to have HABLOSS data on IDUN to run)
 
-## Repository Structure
+### What's Included
+- `train_unet.py` / `train_early_fusion.py`: Main training scripts
+- `slurm_unet.sh` / `slurm_fcef.sh`: SLURM job scripts (4 hours, 1 GPU, 32GB RAM)
+- `IDUN_GUIDE.md`: Full setup instructions for IDUN cluster
+
+Both training scripts:
+- Auto-install PyTorch 2.1.0 and torchvision 0.16.0 on IDUN
+- Handle variable-sized chips with center-cropping
+- Log metrics to WandB every epoch (loss, IoU, F1, precision, recall, accuracy)
+- Save combined GT+prediction visualizations at the end of training (in that order)
+
+## Code Organization
 
 ### `notebooks/`
-- Exploratory notebooks and baseline experiments
+Early experiments and exploratory analysis.
 
 ### `src/`
-- `config.py`: Data paths configuration (SENTINEL_DIR, MASK_DIR, VHR_DIR)
-- `data/splits.py`: Shared train/val/test splitting (70/15/15, random_state=42)
-- `data/transform.py`: Shared augmentation and normalization transforms for fair comparison
-  - `NormalizeBy`: Scale by constant (10000 for Sentinel-2 TOA)
-  - `Normalize`: Per-channel standardization using training set statistics
-  - `RandomFlipTS`: Random horizontal/vertical flips (applied to all timesteps)
-  - `RandomRotate90TS`: Random 90° rotations (applied to all timesteps)
-  - `ComposeTS`: Transform composition for time series data
-- `data/timeseries_dataset.py`: Unified time series dataset for both models
-  - Handles variable-sized chips with center-cropping to 64×64
-  - Reshapes Sentinel-2 data to (T, C, H, W) format
-  - Supports temporal slicing (e.g., "first_half" for first 7 timesteps)
-- `data/sentinel_habloss_dataset.py`: Legacy single-image dataset (deprecated)
-- `models/external/torchrs_fc_cd.py`: FCEF model implementation
+Main code library:
 
-### `data/` (on IDUN cluster)
-- `raw/Sentinel/`: Sentinel-2 time series GeoTIFFs (126 bands = 14 timesteps × 9 bands)
-- `raw/masks/`: Binary land-take masks (upsampled to match Sentinel resolution)
-- `raw/VHR/`: Very High Resolution imagery (6 bands = 2 timesteps × 3 RGB bands)
-- `processed/`: Preprocessed data
+**Data pipeline** (`src/data/`):
+- `timeseries_dataset.py` - Main dataset class. Loads Sentinel-2 time series and handles variable chip sizes with center-cropping.
+- `splits.py` - Train/val/test split logic (70/15/15, fixed seed)
+- `transform.py` - Augmentation and normalization transforms
+  - `NormalizeBy` - Scales by 10000 (Sentinel-2 TOA reflectance)
+  - `Normalize` - Per-channel standardization
+  - `RandomFlipTS` / `RandomRotate90TS` - Spatial augmentation for time series
+
+**Models** (`src/models/`):
+- `external/torchrs_fc_cd.py` - FCEF architecture implementation
+
+**Config** (`src/config.py`):
+- Data paths for IDUN cluster
+
+### Data on IDUN
+All data lives in `/cluster/work/cecilmb/data/raw/`:
+- `Sentinel/` - Sentinel-2 GeoTIFFs (126 bands = 14 timesteps × 9 bands each)
+- `masks/` - Binary land-take masks
+- `vhr/` - Very high resolution RGB imagery (optional)
+- `PlanetScope/` - PlanetScope imagery (optional)
 
 ### `logs/`
-- SLURM job output files (`.out` and `.err` for each job)
+SLURM output files from cluster jobs.
 
-## Data Format
-- **Sentinel-2 chips**: Variable sizes (typically ~64×84 pixels), 126 bands
-  - Automatically center-cropped to 64×64 during training
-  - Layout: 7 years × 2 quarters/year × 9 bands = 126 bands total
-  - Reshaped to (T=14, C=9, H, W) for temporal processing
-  - "first_half" mode uses T=7 (first 7 timesteps)
-- **Masks**: Binary land-take masks (0=background, 1=land-take)
-- **Preprocessing**: All chips center-cropped to 64×64, with padding if smaller
+## Data Details
+
+**Sentinel-2 chips**: Each chip covers the same location across 14 timesteps (7 years × 2 seasons per year). We use 9 spectral bands per timestep = 126 total bands per chip. Chips have variable sizes (typically ~64×84 pixels), so we center-crop to 64×64 during training.
+
+For this project, we use only the first 7 timesteps (`temporal_mode = "first_half"`).
+
+**Masks**: Binary segmentation masks. 1 = land-take occurred, 0 = background.
+
+## Results
+
+We trained both models on IDUN using the same data pipeline. Check the WandB project (`Baseline`) for full training curves and metrics.
+
+**Key findings:**
+- Both models converge within 50 epochs
+- The temporal architecture (FCEF) explicitly models the time dimension, while U-Net treats it as concatenated channels
+- Test set visualizations show how each model segments land-take regions
+- All results are reproducible using the training scripts with seed=42
+
+See the WandB dashboard for:
+- Training and validation loss curves
+- Per-epoch metrics (IoU, F1, Precision, Recall, Accuracy)
+- Side-by-side ground truth and prediction visualizations
+
+## Experiment Tracking
+
+We use Weights & Biases (WandB) to track all experiments.
+
+**Project**: `Baseline` (entity: `nina_prosjektoppgave`)
+
+**What gets logged each epoch:**
+- Training loss
+- Validation loss
+- Validation metrics: IoU, F1, Precision, Recall, Accuracy
+- Test metrics (final epoch only)
+
+**Visualization:**
+At the end of training, we log test set predictions to WandB:
+- Format: Side-by-side images (ground truth left, prediction right)
+- Upscaled 4× (from 64×128 to 256×512) for better visibility
+- Samples from up to 10 test batches
+- Find them under the `test_combined_masks` key in WandB
+
+We don't log RGB overlays or validation predictions during training - just the final test results.

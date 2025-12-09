@@ -81,8 +81,8 @@ def log_example_batch(model, loader, device, step, name_prefix="val"):
 
 def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
     """
-    Log ground-truth and predicted segmentation masks to WandB.
-    Iterates over multiple batches and logs GT and predictions separately.
+    Log ground-truth and predicted segmentation masks to WandB as combined side-by-side images.
+    Iterates over multiple batches and creates a single image per sample with GT on left, prediction on right.
     Visualizes masks as black (0) and white (255).
     
     Args:
@@ -94,9 +94,10 @@ def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
         max_batches: Maximum number of batches to process (default 10)
     """
     try:
+        import numpy as np
+        
         model.eval()
-        gt_images = []
-        pred_images = []
+        combined_images = []
         
         with torch.no_grad():
             loader_iter = iter(loader)
@@ -127,14 +128,14 @@ def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
                     if len(masks_vis[i].shape) != 2 or len(preds_vis[i].shape) != 2:
                         continue
                     
-                    gt_images.append(wandb.Image(masks_vis[i], caption=f"{name_prefix}_gt_b{b_idx}_i{i}"))
-                    pred_images.append(wandb.Image(preds_vis[i], caption=f"{name_prefix}_pred_b{b_idx}_i{i}"))
+                    # Combine GT (left) and prediction (right) side-by-side
+                    combined = np.concatenate([masks_vis[i], preds_vis[i]], axis=1)  # (64, 128)
+                    combined_images.append(wandb.Image(combined, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
         
-        # Log ground truth and predictions separately
-        if len(gt_images) > 0 and len(pred_images) > 0:
-            wandb.log({f"{name_prefix}_gt_masks": gt_images}, step=step)
-            wandb.log({f"{name_prefix}_pred_masks": pred_images}, step=step)
-            print(f"[INFO] Logged {len(gt_images)} GT masks and {len(pred_images)} prediction masks for {name_prefix}")
+        # Log combined GT+prediction images
+        if len(combined_images) > 0:
+            wandb.log({f"{name_prefix}_combined_masks": combined_images}, step=step)
+            print(f"[INFO] Logged {len(combined_images)} combined mask images for {name_prefix}")
         else:
             print(f"[WARN] log_masks ({name_prefix}): no valid samples to log")
     

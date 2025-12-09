@@ -38,45 +38,23 @@ from src.models.external.torchrs_fc_cd import FCEF
 
 import wandb
 
-def log_example_batch(model, loader, device, step, name_prefix="val"):
-    model.eval()
-    imgs, masks = next(iter(loader))        # imgs shape: (B, T, C, H, W)
+def upscale_mask(mask, scale=4):
+    """
+    Upscale a mask using nearest-neighbor interpolation.
     
-    with torch.no_grad():
-        B, T, C, H, W = imgs.shape
-        # FCEF expects (B, T, C, H, W)
-        x = imgs.to(device)
-        logits = model(x)
-        preds = logits.argmax(dim=1).cpu()  # (B, H, W)
-
-    masks = masks.cpu()
-
-    # Make a simple RGB image from first timestep (bands 0,1,2)
-    rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
-    # Re-stretch RGB to [0, 1] for better visualization
-    rgb_min = rgb.amin(dim=(-2, -1), keepdim=True)
-    rgb_max = rgb.amax(dim=(-2, -1), keepdim=True)
-    rgb = (rgb - rgb_min) / (rgb_max - rgb_min + 1e-6)
-
-    wandb_images = []
-    for i in range(min(4, B)):
-        wandb_images.append(
-            wandb.Image(
-                rgb[i],
-                masks={
-                    "ground_truth": {
-                        "mask_data": masks[i].numpy(),
-                        "class_labels": {0: "background", 1: "land-take"},
-                    },
-                    "prediction": {
-                        "mask_data": preds[i].numpy(),
-                        "class_labels": {0: "background", 1: "land-take"},
-                    },
-                },
-            )
-        )
-
-    wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
+    Args:
+        mask: 2D numpy array (H, W)
+        scale: Upscaling factor (default 4)
+    
+    Returns:
+        Upscaled mask (H*scale, W*scale)
+    """
+    import cv2
+    return cv2.resize(
+        mask,
+        (mask.shape[1] * scale, mask.shape[0] * scale),
+        interpolation=cv2.INTER_NEAREST,
+    )
 
 
 def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
@@ -130,7 +108,9 @@ def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
                     
                     # Combine GT (left) and prediction (right) side-by-side
                     combined = np.concatenate([masks_vis[i], preds_vis[i]], axis=1)  # (64, 128)
-                    combined_images.append(wandb.Image(combined, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
+                    # Upscale for better visualization
+                    upscaled = upscale_mask(combined, scale=4)  # (256, 512)
+                    combined_images.append(wandb.Image(upscaled, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
         
         # Log combined GT+prediction images
         if len(combined_images) > 0:
@@ -508,9 +488,6 @@ def main():
             f"Acc={val_metrics['accuracy']:.4f}"
         )
 
-        if epoch % 5 == 0:
-            log_example_batch(model, val_loader, device, step=epoch, name_prefix="val")
-
     
     # Test set evaluation
     print("\n" + "="*80)
@@ -557,11 +534,7 @@ def main():
         "test_accuracy": test_metrics['accuracy'],
     })
     
-    # Always log example predictions from test set at the end
-    print("\nLogging final test set predictions...")
-    log_example_batch(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
-    
-    # Log masks from multiple test batches
+    # Log combined masks from multiple test batches
     print("\nLogging test set masks...")
     log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test", max_batches=10)
     

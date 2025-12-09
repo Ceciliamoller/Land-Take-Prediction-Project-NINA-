@@ -45,76 +45,23 @@ from src.data.transform import (
 
 import wandb
 
-def log_example_batch(model, loader, device, step, name_prefix="val"):
+def upscale_mask(mask, scale=4):
     """
-    Log a batch of example predictions to WandB.
-    Input for U-Net is (B, T, C, H, W) which gets reshaped to (B, T*C, H, W).
-    Gracefully handles errors and empty batches.
-    """
-    try:
-        model.eval()
-        # Try to get a batch from the loader
-        try:
-            imgs, masks = next(iter(loader))
-        except (StopIteration, RuntimeError) as e:
-            print(f"[WARN] log_example_batch ({name_prefix}) skipped: no data in loader - {e}")
-            return
-        
-        if imgs.shape[0] == 0:
-            print(f"[WARN] log_example_batch ({name_prefix}) skipped: empty batch")
-            return
-        
-        with torch.no_grad():
-            B, T, C, H, W = imgs.shape
-            # For U-Net early fusion, flatten T and C
-            x_unet = imgs.reshape(B, T * C, H, W).to(device)
-            logits = model(x_unet)
-            preds = logits.argmax(dim=1).cpu()  # (B, H, W)
-
-        masks = masks.cpu()
-
-        # Make a simple RGB image from first timestep (bands 0,1,2)
-        rgb = imgs[:, 0, :3, :, :].cpu()        # (B, 3, H, W)
-        # Re-stretch RGB to [0, 1] for better visualization
-        rgb_min = rgb.amin(dim=(-2, -1), keepdim=True)
-        rgb_max = rgb.amax(dim=(-2, -1), keepdim=True)
-        rgb = (rgb - rgb_min) / (rgb_max - rgb_min + 1e-6)
-
-        wandb_images = []
-        for i in range(min(4, B)):
-            # Validate tensor shapes before creating wandb.Image
-            if rgb[i].shape[0] != 3 or len(rgb[i].shape) != 3:
-                print(f"[WARN] Skipping sample {i}: invalid RGB shape {rgb[i].shape}")
-                continue
-            if len(masks[i].shape) != 2 or len(preds[i].shape) != 2:
-                print(f"[WARN] Skipping sample {i}: invalid mask shapes")
-                continue
-            
-            wandb_images.append(
-                wandb.Image(
-                    rgb[i],
-                    masks={
-                        "ground_truth": {
-                            "mask_data": masks[i].numpy(),
-                            "class_labels": {0: "background", 1: "land-take"},
-                        },
-                        "prediction": {
-                            "mask_data": preds[i].numpy(),
-                            "class_labels": {0: "background", 1: "land-take"},
-                        },
-                    },
-                )
-            )
-        
-        if len(wandb_images) > 0:
-            wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
-        else:
-            print(f"[WARN] log_example_batch ({name_prefix}): no valid samples to log")
+    Upscale a mask using nearest-neighbor interpolation.
     
-    except Exception as e:
-        print(f"[ERROR] log_example_batch ({name_prefix}) failed: {e}")
-        import traceback
-        traceback.print_exc()
+    Args:
+        mask: 2D numpy array (H, W)
+        scale: Upscaling factor (default 4)
+    
+    Returns:
+        Upscaled mask (H*scale, W*scale)
+    """
+    import cv2
+    return cv2.resize(
+        mask,
+        (mask.shape[1] * scale, mask.shape[0] * scale),
+        interpolation=cv2.INTER_NEAREST,
+    )
 
 
 def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
@@ -169,7 +116,9 @@ def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
                     
                     # Combine GT (left) and prediction (right) side-by-side
                     combined = np.concatenate([masks_vis[i], preds_vis[i]], axis=1)  # (64, 128)
-                    combined_images.append(wandb.Image(combined, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
+                    # Upscale for better visualization
+                    upscaled = upscale_mask(combined, scale=4)  # (256, 512)
+                    combined_images.append(wandb.Image(upscaled, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
         
         # Log combined GT+prediction images
         if len(combined_images) > 0:
@@ -597,9 +546,6 @@ def main():
             f"Rec={val_metrics['recall']:.4f} "
             f"Acc={val_metrics['accuracy']:.4f}"
         )
-
-        if epoch % 5 == 0:
-            log_example_batch(model, val_loader, device, step=epoch, name_prefix="val")
     
     # Test set evaluation
     print("\n" + "="*80)
@@ -625,11 +571,7 @@ def main():
         "test_accuracy": test_metrics['accuracy'],
     })
     
-    # Always log example predictions from test set at the end
-    print("\nLogging final test set predictions...")
-    log_example_batch(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
-    
-    # Log masks from multiple test batches
+    # Log combined masks from multiple test batches
     print("\nLogging test set masks...")
     log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test", max_batches=10)
     

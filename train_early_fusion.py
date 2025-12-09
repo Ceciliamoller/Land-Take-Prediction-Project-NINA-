@@ -78,6 +78,56 @@ def log_example_batch(model, loader, device, step, name_prefix="val"):
 
     wandb.log({f"{name_prefix}_examples": wandb_images}, step=step)
 
+
+def log_masks(model, loader, device, step, name_prefix="val"):
+    """
+    Log ground-truth and predicted segmentation masks as grayscale images to WandB.
+    Visualizes masks as black (0) and white (255) for clear inspection.
+    """
+    try:
+        model.eval()
+        with torch.no_grad():
+            try:
+                imgs, masks = next(iter(loader))
+            except (StopIteration, RuntimeError) as e:
+                print(f"[WARN] log_masks ({name_prefix}) skipped: no data in loader - {e}")
+                return
+            
+            if imgs.shape[0] == 0:
+                print(f"[WARN] log_masks ({name_prefix}) skipped: empty batch")
+                return
+            
+            B = imgs.shape[0]
+            x = imgs.to(device)
+            logits = model(x)
+            preds = logits.argmax(dim=1).cpu()  # (B, H, W)
+            masks = masks.cpu()
+            
+            # Convert to uint8 and scale to 0/255 for visibility
+            masks_vis = (masks * 255).byte().numpy()  # (B, H, W)
+            preds_vis = (preds * 255).byte().numpy()  # (B, H, W)
+            
+            mask_images = []
+            for i in range(min(4, B)):
+                if len(masks_vis[i].shape) != 2 or len(preds_vis[i].shape) != 2:
+                    print(f"[WARN] Skipping sample {i}: invalid mask dimensions")
+                    continue
+                
+                # Log ground truth and prediction as separate grayscale images
+                mask_images.append(wandb.Image(masks_vis[i], caption=f"gt_{i}"))
+                mask_images.append(wandb.Image(preds_vis[i], caption=f"pred_{i}"))
+            
+            if len(mask_images) > 0:
+                wandb.log({f"{name_prefix}_masks": mask_images}, step=step)
+            else:
+                print(f"[WARN] log_masks ({name_prefix}): no valid samples to log")
+    
+    except Exception as e:
+        print(f"[ERROR] log_masks ({name_prefix}) failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -443,6 +493,10 @@ def main():
 
         if epoch % 5 == 0:
             log_example_batch(model, val_loader, device, step=epoch, name_prefix="val")
+        
+        # Log mask visualizations every 10 epochs
+        if epoch % 10 == 0:
+            log_masks(model, val_loader, device, step=epoch, name_prefix="val")
 
     
     # Test set evaluation
@@ -493,6 +547,7 @@ def main():
     # Always log example predictions from test set at the end
     print("\nLogging final test set predictions...")
     log_example_batch(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
+    log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
     
     # Finish WandB
     run.finish()

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from tqdm import tqdm
@@ -38,9 +39,10 @@ from src.models.external.torchrs_fc_cd import FCEF
 
 import wandb
 
-def upscale_mask(mask, scale=4):
+def upscale_mask(mask, scale: int = 4):
     """
-    Upscale a mask using nearest-neighbor interpolation.
+    Upscale a 2D numpy mask (H, W) with values 0 or 255
+    to a larger size using nearest-neighbor interpolation.
     
     Args:
         mask: 2D numpy array (H, W)
@@ -49,12 +51,9 @@ def upscale_mask(mask, scale=4):
     Returns:
         Upscaled mask (H*scale, W*scale)
     """
-    import cv2
-    return cv2.resize(
-        mask,
-        (mask.shape[1] * scale, mask.shape[0] * scale),
-        interpolation=cv2.INTER_NEAREST,
-    )
+    t = torch.from_numpy(mask)[None, None].float()  # (1,1,H,W)
+    t_up = F.interpolate(t, scale_factor=scale, mode="nearest")
+    return t_up[0, 0].byte().numpy()
 
 
 def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):

@@ -117,49 +117,65 @@ def log_example_batch(model, loader, device, step, name_prefix="val"):
         traceback.print_exc()
 
 
-def log_masks(model, loader, device, step, name_prefix="val"):
+def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
     """
-    Log ground-truth and predicted segmentation masks as grayscale images to WandB.
-    Visualizes masks as black (0) and white (255) for clear inspection.
+    Log ground-truth and predicted segmentation masks to WandB.
+    Iterates over multiple batches and logs GT and predictions separately.
+    Visualizes masks as black (0) and white (255).
+    
+    Args:
+        model: The model to evaluate
+        loader: DataLoader to sample from
+        device: Device for inference
+        step: WandB step (typically epoch number)
+        name_prefix: Prefix for WandB keys (e.g., "val", "test")
+        max_batches: Maximum number of batches to process (default 10)
     """
     try:
         model.eval()
+        gt_images = []
+        pred_images = []
+        
         with torch.no_grad():
-            try:
-                imgs, masks = next(iter(loader))
-            except (StopIteration, RuntimeError) as e:
-                print(f"[WARN] log_masks ({name_prefix}) skipped: no data in loader - {e}")
-                return
-            
-            if imgs.shape[0] == 0:
-                print(f"[WARN] log_masks ({name_prefix}) skipped: empty batch")
-                return
-            
-            B, T, C, H, W = imgs.shape
-            # For U-Net early fusion, flatten T and C
-            x_unet = imgs.reshape(B, T * C, H, W).to(device)
-            logits = model(x_unet)
-            preds = logits.argmax(dim=1).cpu()  # (B, H, W)
-            masks = masks.cpu()
-            
-            # Convert to uint8 and scale to 0/255 for visibility
-            masks_vis = (masks * 255).byte().numpy()  # (B, H, W)
-            preds_vis = (preds * 255).byte().numpy()  # (B, H, W)
-            
-            mask_images = []
-            for i in range(min(4, B)):
-                if len(masks_vis[i].shape) != 2 or len(preds_vis[i].shape) != 2:
-                    print(f"[WARN] Skipping sample {i}: invalid mask dimensions")
+            loader_iter = iter(loader)
+            for b_idx in range(max_batches):
+                try:
+                    imgs, masks = next(loader_iter)
+                except StopIteration:
+                    print(f"[INFO] log_masks ({name_prefix}): reached end of loader at batch {b_idx}")
+                    break
+                except RuntimeError as e:
+                    print(f"[WARN] log_masks ({name_prefix}) batch {b_idx} failed: {e}")
                     continue
                 
-                # Log ground truth and prediction as separate grayscale images
-                mask_images.append(wandb.Image(masks_vis[i], caption=f"gt_{i}"))
-                mask_images.append(wandb.Image(preds_vis[i], caption=f"pred_{i}"))
-            
-            if len(mask_images) > 0:
-                wandb.log({f"{name_prefix}_masks": mask_images}, step=step)
-            else:
-                print(f"[WARN] log_masks ({name_prefix}): no valid samples to log")
+                if imgs.shape[0] == 0:
+                    continue
+                
+                B, T, C, H, W = imgs.shape
+                # For U-Net early fusion, flatten T and C
+                x_unet = imgs.reshape(B, T * C, H, W).to(device)
+                logits = model(x_unet)
+                preds = logits.argmax(dim=1).cpu()  # (B, H, W)
+                masks = masks.cpu()
+                
+                # Convert to uint8 and scale to 0/255 for visibility
+                masks_vis = (masks * 255).byte().numpy()  # (B, H, W)
+                preds_vis = (preds * 255).byte().numpy()  # (B, H, W)
+                
+                for i in range(B):
+                    if len(masks_vis[i].shape) != 2 or len(preds_vis[i].shape) != 2:
+                        continue
+                    
+                    gt_images.append(wandb.Image(masks_vis[i], caption=f"{name_prefix}_gt_b{b_idx}_i{i}"))
+                    pred_images.append(wandb.Image(preds_vis[i], caption=f"{name_prefix}_pred_b{b_idx}_i{i}"))
+        
+        # Log ground truth and predictions separately
+        if len(gt_images) > 0 and len(pred_images) > 0:
+            wandb.log({f"{name_prefix}_gt_masks": gt_images}, step=step)
+            wandb.log({f"{name_prefix}_pred_masks": pred_images}, step=step)
+            print(f"[INFO] Logged {len(gt_images)} GT masks and {len(pred_images)} prediction masks for {name_prefix}")
+        else:
+            print(f"[WARN] log_masks ({name_prefix}): no valid samples to log")
     
     except Exception as e:
         print(f"[ERROR] log_masks ({name_prefix}) failed: {e}")
@@ -583,10 +599,6 @@ def main():
 
         if epoch % 5 == 0:
             log_example_batch(model, val_loader, device, step=epoch, name_prefix="val")
-        
-        # Log mask visualizations every 10 epochs
-        if epoch % 10 == 0:
-            log_masks(model, val_loader, device, step=epoch, name_prefix="val")
     
     # Test set evaluation
     print("\n" + "="*80)
@@ -615,7 +627,10 @@ def main():
     # Always log example predictions from test set at the end
     print("\nLogging final test set predictions...")
     log_example_batch(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
-    log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test")
+    
+    # Log masks from multiple test batches
+    print("\nLogging test set masks...")
+    log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test", max_batches=10)
     
     # Finish WandB
     run.finish()

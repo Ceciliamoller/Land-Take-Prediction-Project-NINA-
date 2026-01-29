@@ -2,16 +2,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Data folders
-DATA_DIR = ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"
-VHR_DIR = RAW_DIR / "vhr"
-SENTINEL_DIR = RAW_DIR / "sentinel"
-MASK_DIR = RAW_DIR / "masks"
-SENTINEL_DIR = RAW_DIR / "Sentinel"
-PLANETSCOPE_DIR = RAW_DIR / "PlanetScope"
-INTERIM_DIR = DATA_DIR / "interim"
-PROCESSED_DIR = DATA_DIR / "processed"
+# Data folders on IDUN
+DATA_ROOT = ROOT / "data" / "raw"
+
+SENTINEL_DIR = DATA_ROOT / "Sentinel"
+MASK_DIR     = DATA_ROOT / "masks"
+VHR_DIR      = DATA_ROOT / "vhr"
+PLANETSCOPE_DIR = DATA_ROOT / "PlanetScope"
+APLHAEARTH_DIR = DATA_ROOT / "AlphaEarth"
 
 # Output / reports
 REPORTS_DIR = ROOT / "reports"
@@ -24,5 +22,5 @@ LR = 1e-3
 EPOCHS = 10
 
 # Create folders if missing 
-for d in [INTERIM_DIR, PROCESSED_DIR, REPORTS_DIR, FIGURES_DIR]:
+for d in [REPORTS_DIR, FIGURES_DIR]:
     d.mkdir(parents=True, exist_ok=True)

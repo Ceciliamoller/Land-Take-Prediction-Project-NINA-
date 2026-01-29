@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from tqdm import tqdm
@@ -30,9 +31,97 @@ from src.data.transform import (
     NormalizeBy,
     RandomCropTS,
     CenterCropTS,
-    Normalize
+    Normalize,
+    RandomFlipTS,
+    RandomRotate90TS
 )
 from src.models.external.torchrs_fc_cd import FCEF
+
+import wandb
+
+def upscale_mask(mask, scale: int = 4):
+    """
+    Upscale a 2D numpy mask (H, W) with values 0 or 255
+    to a larger size using nearest-neighbor interpolation.
+    
+    Args:
+        mask: 2D numpy array (H, W)
+        scale: Upscaling factor (default 4)
+    
+    Returns:
+        Upscaled mask (H*scale, W*scale)
+    """
+    t = torch.from_numpy(mask)[None, None].float()  # (1,1,H,W)
+    t_up = F.interpolate(t, scale_factor=scale, mode="nearest")
+    return t_up[0, 0].byte().numpy()
+
+
+def log_masks(model, loader, device, step, name_prefix="val", max_batches=10):
+    """
+    Log ground-truth and predicted segmentation masks to WandB as combined side-by-side images.
+    Iterates over multiple batches and creates a single image per sample with GT on left, prediction on right.
+    Visualizes masks as black (0) and white (255).
+    
+    Args:
+        model: The model to evaluate
+        loader: DataLoader to sample from
+        device: Device for inference
+        step: WandB step (typically epoch number)
+        name_prefix: Prefix for WandB keys (e.g., "val", "test")
+        max_batches: Maximum number of batches to process (default 10)
+    """
+    try:
+        import numpy as np
+        
+        model.eval()
+        combined_images = []
+        
+        with torch.no_grad():
+            loader_iter = iter(loader)
+            for b_idx in range(max_batches):
+                try:
+                    imgs, masks = next(loader_iter)
+                except StopIteration:
+                    print(f"[INFO] log_masks ({name_prefix}): reached end of loader at batch {b_idx}")
+                    break
+                except RuntimeError as e:
+                    print(f"[WARN] log_masks ({name_prefix}) batch {b_idx} failed: {e}")
+                    continue
+                
+                if imgs.shape[0] == 0:
+                    continue
+                
+                B = imgs.shape[0]
+                x = imgs.to(device)
+                logits = model(x)
+                preds = logits.argmax(dim=1).cpu()  # (B, H, W)
+                masks = masks.cpu()
+                
+                # Convert to uint8 and scale to 0/255 for visibility
+                masks_vis = (masks * 255).byte().numpy()  # (B, H, W)
+                preds_vis = (preds * 255).byte().numpy()  # (B, H, W)
+                
+                for i in range(B):
+                    if len(masks_vis[i].shape) != 2 or len(preds_vis[i].shape) != 2:
+                        continue
+                    
+                    # Combine GT (left) and prediction (right) side-by-side
+                    combined = np.concatenate([masks_vis[i], preds_vis[i]], axis=1)  # (64, 128)
+                    # Upscale for better visualization
+                    upscaled = upscale_mask(combined, scale=4)  # (256, 512)
+                    combined_images.append(wandb.Image(upscaled, caption=f"{name_prefix}_GT_left_PRED_right_b{b_idx}_i{i}"))
+        
+        # Log combined GT+prediction images
+        if len(combined_images) > 0:
+            wandb.log({f"{name_prefix}_combined_masks": combined_images}, step=step)
+            print(f"[INFO] Logged {len(combined_images)} combined mask images for {name_prefix}")
+        else:
+            print(f"[WARN] log_masks ({name_prefix}): no valid samples to log")
+    
+    except Exception as e:
+        print(f"[ERROR] log_masks ({name_prefix}) failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # ============================================================================
@@ -55,12 +144,13 @@ CONFIG = {
     # Data
     "sensor": "sentinel",
     "temporal_mode": "first_half",  # 7 timesteps
-    "patch_size": 64,
+    "chip_size": 64,  # Pre-cropped chips are 64×64
     
     # Training
-    "epochs": 10,
+    "epochs": 50,
     "learning_rate": 1e-3,
     "batch_size": 4,
+    "augment_train": True,  # Enable spatial augmentation (flips, rotations)
     
     # Normalization
     "normalization": "scale_10000_plus_standardize",
@@ -70,7 +160,7 @@ CONFIG = {
     "num_workers": 4,
     
     # WandB
-    "wandb_project": "FCEarlyFusion",
+    "wandb_project": "Baseline",
     "wandb_entity": "nina_prosjektoppgave",
 }
 
@@ -171,13 +261,15 @@ def main():
     print("\n" + "="*80)
     print("NORMALIZATION")
     print("="*80)
-    temp_train_transform = ComposeTS([NormalizeBy(10000.0)])
+    temp_train_transform = ComposeTS([
+        NormalizeBy(10000.0),
+    ])
     
     temp_train_ds = TimeSeriesDataset(
         train_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=temp_train_transform
+        transform=temp_train_transform,
     )
     
     print("Estimating per-channel mean and std from training data...")
@@ -190,47 +282,56 @@ def main():
     print("\n" + "="*80)
     print("DATASETS")
     print("="*80)
-    train_transform = ComposeTS([
-        NormalizeBy(10000.0),
-        Normalize(mean, std),
-        RandomCropTS(CONFIG["patch_size"]),
-    ])
     
+    # Training transform with spatial augmentation (flips + rotations)
+    if CONFIG["augment_train"]:
+        train_transform = ComposeTS([
+            RandomFlipTS(p_horizontal=0.5, p_vertical=0.5),
+            RandomRotate90TS(),
+            NormalizeBy(10000.0),
+            Normalize(mean, std),
+        ])
+    else:
+        train_transform = ComposeTS([
+            NormalizeBy(10000.0),
+            Normalize(mean, std),
+        ])
+    
+    # Val/test transforms: no augmentation, only normalization
     val_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
-        CenterCropTS(CONFIG["patch_size"]),
     ])
     
     test_transform = ComposeTS([
         NormalizeBy(10000.0),
         Normalize(mean, std),
-        CenterCropTS(CONFIG["patch_size"]),
     ])
     
     train_ds = TimeSeriesDataset(
         train_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=train_transform
+        transform=train_transform,
     )
     val_ds = TimeSeriesDataset(
         val_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=val_transform
+        transform=val_transform,
     )
     test_ds = TimeSeriesDataset(
         test_ref_ids,
         sensor=CONFIG["sensor"],
         slice_mode=CONFIG["temporal_mode"],
-        transform=test_transform
+        transform=test_transform,
     )
     
-    print(f"✓ Datasets created with SHARED normalization and patch_size={CONFIG['patch_size']}")
-    print(f"Train samples: {len(train_ds)} tiles")
-    print(f"Val samples: {len(val_ds)} tiles")
-    print(f"Test samples: {len(test_ds)} tiles")
+    print(f"✓ Datasets created for pre-cropped {CONFIG['chip_size']}×{CONFIG['chip_size']} chips")
+    print(f"Train chips: {len(train_ds)} (from {len(train_ref_ids)} REFIDs) - with flips + rotations")
+    print(f"Val chips: {len(val_ds)} (from {len(val_ref_ids)} REFIDs) - no augmentation")
+    print(f"Test chips: {len(test_ds)} (from {len(test_ref_ids)} REFIDs) - no augmentation")
+    print(f"Augmentation enabled: {CONFIG['augment_train']}")
     
     # Create dataloaders
     def worker_init_fn(worker_id):
@@ -248,15 +349,15 @@ def main():
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable validation on small datasets
         shuffle=False,
-        num_workers=CONFIG["num_workers"]
+        num_workers=CONFIG["num_workers"],
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=1,  # Use batch_size=1 for stable test evaluation
         shuffle=False,
-        num_workers=CONFIG["num_workers"]
+        num_workers=CONFIG["num_workers"],
     )
     
     print(f"✓ Dataloaders created with reproducible shuffling (seed={CONFIG['random_seed']})")
@@ -279,7 +380,7 @@ def main():
     # Loss, optimizer, and scaler
     criterion = nn.CrossEntropyLoss()
     optimizer = Adam(model.parameters(), lr=CONFIG["learning_rate"])
-    scaler = torch.amp.GradScaler("cuda")
+    scaler = torch.cuda.amp.GradScaler()
     
     # Initialize WandB
     print("\n" + "="*80)
@@ -288,24 +389,27 @@ def main():
     run = wandb.init(
         entity=CONFIG["wandb_entity"],
         project=CONFIG["wandb_project"],
+        name=f"FCEF_{CONFIG['sensor']}_chip{CONFIG['chip_size']}_t{T}",
         config={
             "learning_rate": CONFIG["learning_rate"],
             "architecture": CONFIG["architecture"],
             "dataset": CONFIG["sensor"],
             "epochs": CONFIG["epochs"],
             "batch_size": CONFIG["batch_size"],
-            "patch_size": CONFIG["patch_size"],
+            "chip_size": CONFIG["chip_size"],
+            "augment_train": CONFIG["augment_train"],
+            "augmentation": "flips_rotations" if CONFIG["augment_train"] else "none",
             "temporal_mode": CONFIG["temporal_mode"],
             "num_timesteps": T,
-            "train_tiles": len(train_ref_ids),
-            "val_tiles": len(val_ref_ids),
-            "test_tiles": len(test_ref_ids),
+            "train_chips": len(train_ds),
+            "val_chips": len(val_ds),
+            "test_chips": len(test_ds),
             "normalization": CONFIG["normalization"],
             "random_seed": CONFIG["random_seed"],
             "train_ratio": CONFIG["train_ratio"],
             "val_ratio": CONFIG["val_ratio"],
             "test_ratio": CONFIG["test_ratio"],
-            "fair_comparison": "shared_splits_normalization_patch_size_with_UNet",
+            "preprocessing": "64x64_chips_no_patching",
         },
     )
     print("✓ WandB initialized")
@@ -382,6 +486,7 @@ def main():
             f"Rec={val_metrics['recall']:.4f} "
             f"Acc={val_metrics['accuracy']:.4f}"
         )
+
     
     # Test set evaluation
     print("\n" + "="*80)
@@ -427,6 +532,10 @@ def main():
         "test_recall": test_metrics['recall'],
         "test_accuracy": test_metrics['accuracy'],
     })
+    
+    # Log combined masks from multiple test batches
+    print("\nLogging test set masks...")
+    log_masks(model, test_loader, device, step=CONFIG["epochs"], name_prefix="test", max_batches=10)
     
     # Finish WandB
     run.finish()

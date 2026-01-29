@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=unet_landtake
-#SBATCH --account=ie-idi
+#SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
@@ -12,28 +12,48 @@
 #SBATCH --output=logs/unet_%j.out
 #SBATCH --error=logs/unet_%j.err
 
-# Print job info
 echo "=========================================="
 echo "Starting U-Net training job"
-echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $SLURM_NODELIST"
+echo "Job ID:        $SLURM_JOB_ID"
+echo "Job name:      $SLURM_JOB_NAME"
+echo "Node(s):       $SLURM_NODELIST"
+echo "Partition:     $SLURM_JOB_PARTITION"
+echo "GPUs:          $SLURM_GPUS"
 echo "=========================================="
 echo ""
 
-# Load modules
+
+export CUDNN_FRONTEND_OPERATION_RECORDING_DISABLED=1
+export CUBLAS_WORKSPACE_CONFIG=:16:8
+
 module purge
 module load Python/3.10.8-GCCcore-12.2.0
 
-# Activate virtual environment
+WORKDIR=${SLURM_SUBMIT_DIR}
+cd "$WORKDIR"
+
+# Activate project venv
 source .venv/bin/activate
 
-# Set WandB API key (if not in .env)
-# export WANDB_API_KEY="your_key_here"
+# Get .env variables (like wandb api key)
+export $(grep -v '^#' /cluster/home/$USER/Land-Take-Prediction-Project-NINA-/.env | xargs)
 
-# Create logs directory if it doesn't exist
+# Install/update packages to ensure compatibility
+echo "Installing/updating packages..."
+pip install --upgrade torch==2.1.0 torchvision==0.16.0 segmentation-models-pytorch --quiet
+echo "Package installation complete"
+echo ""
+
+echo "Running from directory: $WORKDIR"
+echo ""
+
+echo "GPU status:"
+nvidia-smi || echo "nvidia-smi not available"
+echo ""
+
 mkdir -p logs
 
-# Run training
+echo "Starting python train_unet.py"
 python train_unet.py
 
 echo ""

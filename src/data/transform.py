@@ -22,9 +22,12 @@ def compute_normalization_stats(
     training patches. These statistics should be computed ONCE from the training
     set and then applied consistently to train/val/test data.
     
+    Handles variable-sized inputs by computing statistics per-sample and averaging.
+    
     Args:
         dataset: PyTorch dataset that returns (image, mask) tuples
                  Image should already be scaled (e.g., divided by 10000)
+                 Can handle both 3D (C, H, W) and 4D (T, C, H, W) tensors
         num_samples: Number of random samples to use for estimation
     
     Returns:
@@ -38,16 +41,31 @@ def compute_normalization_stats(
     num_samples = min(num_samples, len(dataset))
     indices = random.sample(range(len(dataset)), num_samples)
     
-    patches = []
+    # Accumulate per-channel statistics
+    channel_means = []
+    channel_stds = []
+    
     for idx in indices:
         img_patch, _ = dataset[idx]
-        patches.append(img_patch)
+        
+        # Handle both 3D (C, H, W) and 4D (T, C, H, W) shapes
+        if img_patch.dim() == 4:  # (T, C, H, W) for time series
+            # Compute mean/std across time and spatial dimensions
+            per_channel_mean = img_patch.mean(dim=[0, 2, 3])  # (C,)
+            per_channel_std = img_patch.std(dim=[0, 2, 3])    # (C,)
+        elif img_patch.dim() == 3:  # (C, H, W) for standard images
+            # Compute mean/std across spatial dimensions
+            per_channel_mean = img_patch.mean(dim=[1, 2])  # (C,)
+            per_channel_std = img_patch.std(dim=[1, 2])    # (C,)
+        else:
+            raise ValueError(f"Expected 3D or 4D tensor, got shape {img_patch.shape}")
+        
+        channel_means.append(per_channel_mean)
+        channel_stds.append(per_channel_std)
     
-    all_patches = torch.stack(patches, dim=0)  # (N, C, H, W)
-    
-    # Compute mean and std across all spatial and sample dimensions
-    mean = all_patches.mean(dim=[0, 2, 3]).tolist()
-    std = all_patches.std(dim=[0, 2, 3]).tolist()
+    # Stack and average across all samples
+    mean = torch.stack(channel_means).mean(dim=0).tolist()
+    std = torch.stack(channel_stds).mean(dim=0).tolist()
     
     return mean, std
 
@@ -138,4 +156,45 @@ class ComposeTS:
     def __call__(self, x, mask):
         for op in self.ops:
             x, mask = op(x, mask)
+        return x, mask
+
+
+class RandomFlipTS:
+    """Random horizontal and vertical flips for time series data (T, C, H, W).
+    Applies the same flip to all timesteps and the mask.
+    Works with 64×64 pre-cropped chips.
+    """
+    def __init__(self, p_horizontal=0.5, p_vertical=0.5):
+        self.p_horizontal = p_horizontal
+        self.p_vertical = p_vertical
+    
+    def __call__(self, x, mask):
+        # x: (T, C, H, W), mask: (H, W)
+        if random.random() < self.p_horizontal:
+            x = x.flip(-1)  # flip width (last dimension)
+            mask = mask.flip(-1)
+        
+        if random.random() < self.p_vertical:
+            x = x.flip(-2)  # flip height (second to last dimension)
+            mask = mask.flip(-2)
+        
+        return x, mask
+
+
+class RandomRotate90TS:
+    """Random 90-degree rotations for time series data (T, C, H, W).
+    Applies the same rotation to all timesteps and the mask.
+    Works with 64×64 pre-cropped chips on both CPU and GPU.
+    """
+    def __init__(self):
+        pass
+    
+    def __call__(self, x, mask):
+        # x: (T, C, H, W), mask: (H, W)
+        # Sample k in {0, 1, 2, 3} for k * 90° rotation
+        k = random.randint(0, 3)
+        if k > 0:
+            x = torch.rot90(x, k=k, dims=(-2, -1))
+            mask = torch.rot90(mask, k=k, dims=(-2, -1))
+        
         return x, mask

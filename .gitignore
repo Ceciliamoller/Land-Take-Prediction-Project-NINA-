@@ -40,3 +40,7 @@ build/
 wandb/
 *.wandb
 
+# Slurm and training logs
+logs/
+logs/*.out
+logs/*.err

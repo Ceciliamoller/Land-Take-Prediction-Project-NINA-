@@ -1,11 +1,13 @@
-torch
-torchvision
+torch==2.1.0
+torchvision==0.16.0
 torchgeo
 rasterio
-numpy
+numpy<2.0
 pandas
 matplotlib
 scikit-learn
 tqdm
 python-dotenv
 wandb
+monai
+segmentation-models-pytorch

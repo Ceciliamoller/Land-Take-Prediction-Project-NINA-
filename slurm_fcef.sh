@@ -32,7 +32,7 @@ cd "$WORKDIR"
 # Activate project venv
 source .venv/bin/activate
 
-# to get .env variables (like wandb api key)
+# Get .env variables (like wandb api key)
 export $(grep -v '^#' /cluster/home/$USER/Land-Take-Prediction-Project-NINA-/.env | xargs)
 
 # Install/update packages to ensure compatibility

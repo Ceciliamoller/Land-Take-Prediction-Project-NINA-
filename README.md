@@ -33,6 +33,7 @@ This ensures we're comparing architectures, not implementation details.
 
 Main packages (see `requirements.txt` for complete list):
 - PyTorch 2.1.0 + torchvision 0.16.0 (works with IDUN P100 GPUs)
+- Python 3.10.8 (from IDUN module)
 - segmentation-models-pytorch (U-Net)
 - wandb (experiment tracking)
 - rasterio (reads GeoTIFF files)
@@ -42,28 +43,35 @@ The SLURM scripts auto-install PyTorch and segmentation-models-pytorch to avoid 
 
 ## Running the Code
 
-### Quick Start
+### Initialization
+Follow `IDUN_GUIDE.md` to setup environment and data first time. Then do the following to run the code after setup:
 
-Run locally:
+```bash
+# Load Python module
+module load Python/3.10.8-GCCcore-12.2.0
+
+#Activate virtual environment
+source .venv/bin/activate
+```
+
+#### Run locally:
 ```bash
 python train_unet.py
 python train_early_fusion.py
 ```
 
-Submit to IDUN cluster:
+#### Submit to IDUN cluster:
 ```bash
 sbatch slurm_unet.sh
 sbatch slurm_fcef.sh
 ```
-(need to have HABLOSS data on IDUN to run)
 
 ### What's Included
 - `train_unet.py` / `train_early_fusion.py`: Main training scripts
-- `slurm_unet.sh` / `slurm_fcef.sh`: SLURM job scripts (4 hours, 1 GPU, 32GB RAM)
+- `slurm_unet.sh` / `slurm_fcef.sh`: SLURM job scripts 
 - `IDUN_GUIDE.md`: Full setup instructions for IDUN cluster
 
 Both training scripts:
-- Auto-install PyTorch 2.1.0 and torchvision 0.16.0 on IDUN
 - Handle variable-sized chips with center-cropping
 - Log metrics to WandB every epoch (loss, IoU, F1, precision, recall, accuracy)
 - Save combined GT+prediction visualizations at the end of training (in that order)
@@ -91,11 +99,12 @@ Main code library:
 - Data paths for IDUN cluster
 
 ### Data on IDUN
-All data lives in `/cluster/work/cecilmb/data/raw/`:
+All data are expected to be accessed from `/cluster/home/your_user/data/raw/`:
 - `Sentinel/` - Sentinel-2 GeoTIFFs (126 bands = 14 timesteps × 9 bands each)
 - `masks/` - Binary land-take masks
-- `vhr/` - Very high resolution RGB imagery (optional)
-- `PlanetScope/` - PlanetScope imagery (optional)
+- `vhr/` - Very high resolution RGB imagery
+- `PlanetScope/` - PlanetScope imagery
+- `AlphaEarth/` - AlphaEarth embeddings at 10x10 m resolution
 
 ### `logs/`
 SLURM output files from cluster jobs.

@@ -35,6 +35,9 @@ cd "$WORKDIR"
 # Activate project venv
 source .venv/bin/activate
 
+# Get .env variables (like wandb api key)
+export $(grep -v '^#' /cluster/home/$USER/Land-Take-Prediction-Project-NINA-/.env | xargs)
+
 # Install/update packages to ensure compatibility
 echo "Installing/updating packages..."
 pip install --upgrade torch==2.1.0 torchvision==0.16.0 segmentation-models-pytorch --quiet

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=fix_emma_test
+#SBATCH --job-name=crop_moved
 #SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1

@@ -6,6 +6,7 @@ for both U-Net and FCEF baselines, ensuring identical preprocessing.
 """
 
 import torch
+import torch.nn.functional as F
 import random
 import numpy as np
 from typing import Tuple, Optional, Sequence
@@ -128,15 +129,35 @@ class RandomCropTS:
         return x, mask 
     
 class CenterCropTS:
+    """Center crop (or pad) time series data to a fixed size.
+    
+    Handles variable-sized inputs by:
+    - Padding with zeros if smaller than target size
+    - Center cropping if larger than target size
+    
+    Works deterministically on all splits for reproducibility.
+    """
     def __init__(self, size):
         self.size = size 
     def __call__(self, x, mask):
         T, C, H, W = x.shape
         s = self.size
-        top = max(0, (H - s) // 2)
-        left = max(0, (W - s) // 2)
-        x = x[:, :, top:top+s, left:left+s]
-        mask = mask[top:top+s, left:left+s]
+        
+        # Pad if smaller than target size
+        if H < s or W < s:
+            pad_h = max(0, s - H)
+            pad_w = max(0, s - W)
+            x = F.pad(x, (0, pad_w, 0, pad_h), mode="constant", value=0)
+            mask = F.pad(mask, (0, pad_w, 0, pad_h), mode="constant", value=0)
+            T, C, H, W = x.shape
+        
+        # Center crop if larger than target size
+        if H > s or W > s:
+            top = (H - s) // 2
+            left = (W - s) // 2
+            x = x[:, :, top:top+s, left:left+s]
+            mask = mask[top:top+s, left:left+s]
+        
         return x, mask
     
 class NormalizeBy:

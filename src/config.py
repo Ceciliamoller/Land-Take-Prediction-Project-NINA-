@@ -3,7 +3,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Data folders on IDUN
-DATA_ROOT = Path("/cluster/work/cecilmb/data/raw")
+# DATA_ROOT = Path("/cluster/work/cecilmb/data/raw")
+DATA_ROOT = ROOT / "data" / "raw"
 
 SENTINEL_DIR = DATA_ROOT / "Sentinel"
 MASK_DIR     = DATA_ROOT / "masks"

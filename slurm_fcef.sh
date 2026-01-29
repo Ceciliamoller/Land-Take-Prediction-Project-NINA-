@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=fcef_landtake
+#SBATCH --job-name=fix_emma_test
 #SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
@@ -31,6 +31,9 @@ cd "$WORKDIR"
 
 # Activate project venv
 source .venv/bin/activate
+
+# to get .env variables (like wandb api key)
+export $(grep -v '^#' /cluster/home/$USER/Land-Take-Prediction-Project-NINA-/.env | xargs)
 
 # Install/update packages to ensure compatibility
 echo "Installing/updating packages..."

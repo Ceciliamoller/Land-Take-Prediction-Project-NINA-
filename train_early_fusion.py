@@ -39,6 +39,7 @@ from src.models.external.torchrs_fc_cd import FCEF
 
 import wandb
 
+
 def upscale_mask(mask, scale: int = 4):
     """
     Upscale a 2D numpy mask (H, W) with values 0 or 255

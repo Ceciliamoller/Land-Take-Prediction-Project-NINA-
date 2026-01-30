@@ -127,7 +127,7 @@ class TimeSeriesDataset(Dataset):
         mask = torch.from_numpy(mask).long()    # (H, W)
         mask = (mask > 0).long()
         
-        # 5) Apply transforms (which handle padding/cropping via CenterCropTS)
+        # 5) Apply transforms
         if self.transform is not None:
             img, mask = self.transform(img, mask)
 

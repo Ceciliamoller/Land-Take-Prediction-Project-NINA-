@@ -341,6 +341,7 @@ def main():
     print("NORMALIZATION")
     print("="*80)
     temp_train_transform = ComposeTS([
+        CenterCropTS(CONFIG["chip_size"]),
         NormalizeBy(10000.0),
     ])
     
@@ -365,6 +366,7 @@ def main():
     # Training transform with spatial augmentation (flips + rotations)
     if CONFIG["augment_train"]:
         train_transform = ComposeTS([
+            CenterCropTS(CONFIG["chip_size"]),  # Pad/crop to 64×64
             RandomFlipTS(p_horizontal=0.5, p_vertical=0.5),
             RandomRotate90TS(),
             NormalizeBy(10000.0),
@@ -372,17 +374,20 @@ def main():
         ])
     else:
         train_transform = ComposeTS([
+            CenterCropTS(CONFIG["chip_size"]),  # Pad/crop to 64×64
             NormalizeBy(10000.0),
             Normalize(mean, std),
         ])
     
     # Val/test transforms: no augmentation, only normalization
     val_transform = ComposeTS([
+        CenterCropTS(CONFIG["chip_size"]),  # Pad/crop to 64×64
         NormalizeBy(10000.0),
         Normalize(mean, std),
     ])
     
     test_transform = ComposeTS([
+        CenterCropTS(CONFIG["chip_size"]),  # Pad/crop to 64×64
         NormalizeBy(10000.0),
         Normalize(mean, std),
     ])

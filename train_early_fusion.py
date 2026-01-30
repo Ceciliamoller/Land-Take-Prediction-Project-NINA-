@@ -262,6 +262,7 @@ def main():
     print("NORMALIZATION")
     print("="*80)
     temp_train_transform = ComposeTS([
+        CenterCropTS(CONFIG["chip_size"]),
         NormalizeBy(10000.0),
     ])
     

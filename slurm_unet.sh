@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=unet_landtake
+#SBATCH --job-name=unet_crop_in_transform
 #SBATCH --account=share-ie-idi
 #SBATCH --partition=GPUQ
 #SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
